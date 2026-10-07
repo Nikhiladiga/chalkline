@@ -18,7 +18,9 @@ Repository text is treated as untrusted evidence. Instructions in comments or RE
 
 ## Scan coverage
 
-Manifests, deployment configuration, READMEs and runtime entry points receive priority. Other source excerpts include imports, registrations, routes and storage/network operations. Context is shared across top-level modules rather than consumed entirely by the first directory. Dependencies alone do not establish a runtime service.
+Manifests, deployment configuration, READMEs and runtime entry points receive priority. Short files are included completely when they fit their share of the context budget. Longer excerpts prioritize runtime calls, registrations, routes, database operations, indexing and scheduled jobs before import headers, keeping their original line numbers. Context is shared across top-level modules rather than consumed entirely by the first directory. Dependencies alone do not establish a runtime service.
+
+The default output is a runtime architecture overview, not an import graph. Route handlers, ORM models and SDK clients are grouped into their owning service; edges describe requests, reads/writes, search, indexing and sync. In-process scheduled jobs should not be presented as separately deployed workers. Import/dependency relationships are included only when explicitly requested in the focus field. Generating again uses these rules; a previously saved diagram is not silently rewritten.
 
 Limits: 20,000 directory entries, 256 KB per source file, 32 MB total reading, 32 KB per ignore file, and 4,000–120,000 context characters adjusted to the configured model context size. Excerpts can omit relevant implementation details even when every eligible file was read. Incomplete traversal, skipped large/unreadable files, or omitted excerpts produce a partial-coverage notice. Choose a narrower service folder or a larger model context for a large repository. There is no background watcher: Rescan and Generate/Apply read fresh evidence.
 
