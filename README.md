@@ -6,11 +6,15 @@ Requires macOS 13 or later for the current macOS build. An installed, logged-in 
 
 ## Development
 
+Clone [Nikhiladiga/chalkline](https://github.com/Nikhiladiga/chalkline). The repository name is `chalkline`; the distributed application name is **Open Eraser**.
+
 Use Node.js 22.18 or later and pnpm. Run `pnpm install`, `pnpm dev`, `pnpm check`, and `pnpm test:e2e`. The postinstall script installs Electron and sets the macOS development application name.
 
 `pnpm dist:mac` builds a local ad hoc signed app; it is not a notarized public release. See [Homebrew preparation](docs/homebrew-release.md) for signing, release artifacts and a personal tap. No public download or tap has been published yet.
 
 The [7 October readiness review](docs/production-readiness-2026-10-07.md) records resolved defects, fresh verification and remaining release gates. The [Tauri assessment](docs/tauri-feasibility.md) explains potential size savings and the rendering/export work required.
+
+The [repository setup and native WebKit check](docs/repository-and-tauri-check.md) records the initial commit groups and the renderer compatibility results.
 
 Settings and cached icons remain in the legacy `diagrammer` application-data directory. Diagram files remain plain JSON; app settings, API keys and source folders are not embedded in them. Invalid code drafts are tracked as unsaved work and included in crash recovery. Save requires valid code. Use the app's File → Open command; it does not claim the system-wide `.json` association.
 

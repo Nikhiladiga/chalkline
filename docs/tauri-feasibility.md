@@ -29,6 +29,8 @@ Using a Node sidecar can preserve the existing main-process TypeScript sooner; T
 
 ## Recommended proof before a full port
 
+The first engine compatibility check now has evidence: the current production renderer ran in native WKWebView on this Mac with stubbed backend calls. All 24 corpus diagrams rendered without global JavaScript errors; 23 matched the Electron goldens within 2 pixels, and one footer differed by 3 pixels in height. This is a WebKit check, not a completed Tauri shell or export proof. See [results and reproduction](repository-and-tauri-check.md).
+
 1. Load the current renderer in a Tauri shell on macOS with stubbed native calls. Render the 24 fixture corpus; compare bounds, fonts, captions, nested groups, eight-port drag/connector behavior and minimum-window UI against Electron.
 2. Prove PNG 1×/2×, transparent PNG and clipboard on large/overflowing diagrams. Preserve SVG/HTML fidelity. Select the export approach based on that evidence.
 3. Implement the typed native bridge: files/recovery/settings/icons first, then installed harnesses/models/Stop and bounded code-folder scans. Keep the same saved document format and provider abstraction.
