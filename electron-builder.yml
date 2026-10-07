@@ -1,0 +1,30 @@
+appId: dev.open-eraser.app
+productName: Open Eraser
+artifactName: '${name}-${version}-${arch}.${ext}'
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: node_modules/@eraserlabs/diagrams/fonts
+    to: licenses/fonts
+    filter: ['*.LICENSE.txt']
+  - from: third_party/eraser-diagrams/LICENSE
+    to: licenses/eraser-diagrams-MIT.txt
+asar: true
+mac:
+  icon: build/icon.png
+  category: public.app-category.graphics-design
+  target: [dmg, zip]
+  identity: '-'
+  hardenedRuntime: false
+  minimumSystemVersion: '13.0'
+win:
+  icon: build/icon.png
+  target: nsis
+linux:
+  icon: build/icon.png
+  target: AppImage
+  category: Graphics
