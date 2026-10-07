@@ -49,7 +49,7 @@ const LOCK = /(?:^|[-.])lock(?:\.|$)|^go\.sum$|\.min\.[jt]s$|\.map$/i;
 
 interface Source {
   path: string;
-  evidence: string;
+  text: string;
   rank: number;
 }
 interface Scope {
@@ -96,21 +96,51 @@ function rank(path: string): number {
 
 const SIGNAL =
   /\b(import|from|require|export|include|resource|provider|module|service|image|depends_on|route|router|register|listen|connect|query|fetch|axios|http|grpc|redis|postgres|mysql|sqlite|mongo|dynamo|s3|lambda|kafka|rabbit|queue|publish|subscribe|readFile|writeFile|open|socket)\b|@(Get|Post|RequestMapping)|app\.(get|post|put|delete|use)|\.execute\(/i;
-function excerpt(text: string, priority: number): string {
-  const lines = redact(text).split(/\r?\n/);
+const IMPORT = /^\s*(?:import\b|from\s+\S+\s+import\b|(?:const|let|var)\b.*\brequire\s*\()/;
+const RUNTIME =
+  /\.(?:get|post|put|patch|delete|use|listen|authenticate|connect|query|execute|find\w*|create|update|destroy|upsert|search|retrieve|schedule|publish|subscribe|add|send|fetch|readFile|writeFile)\s*\(|\b(?:resource|service|image|depends_on)\s*[:"{]|@(Get|Post|RequestMapping)/i;
+const CALL = /\b(?:await\s+)?[\w$]+(?:\.[\w$]+)*\s*\(/;
+
+/** Keep short files intact; spend bounded excerpts on runtime behavior before import headers. */
+function excerpt(text: string, priority: number, maxChars: number): string {
+  const lines = text.split(/\r?\n/);
+  const numbered = lines.map((line, i) => `${i + 1}: ${line.slice(0, 300)}`);
+  const full = numbered.join('\n');
+  if (JSON.stringify(full).length <= maxChars) return full;
   const selected = new Set<number>();
-  const maxLines = priority >= 20 ? 55 : 22;
-  for (let i = 0; i < Math.min(priority >= 20 ? 18 : 5, lines.length); i++) selected.add(i);
-  for (let i = 0; i < lines.length && selected.size < maxLines; i++) {
-    if (!SIGNAL.test(lines[i]!)) continue;
-    for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 2) && selected.size < maxLines; j++)
-      selected.add(j);
+  let used = 2;
+  const add = (i: number) => {
+    if (selected.has(i)) return;
+    const cost = JSON.stringify(numbered[i]).length + 2;
+    if (used + cost > maxChars) return;
+    selected.add(i);
+    used += cost;
+  };
+  const anchors = lines
+    .map((line, i) => ({
+      i,
+      score: IMPORT.test(line)
+        ? 0
+        : RUNTIME.test(line)
+          ? 3
+          : CALL.test(line) && !/^\s*(?:\/\/|#|console\.)/.test(line)
+            ? 2
+            : SIGNAL.test(line) || (priority >= 20 && i < 18)
+              ? 1
+              : 0,
+    }))
+    .filter((line) => line.score > 0)
+    .sort((a, b) => b.score - a.score || a.i - b.i);
+  // Select the calls themselves before their surrounding declarations/comments.
+  for (const { i } of anchors) add(i);
+  for (const { i } of anchors) {
+    for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 3); j++) add(j);
   }
+  for (let i = 0; i < Math.min(priority >= 20 ? 18 : 5, lines.length); i++) add(i);
   return [...selected]
     .sort((a, b) => a - b)
-    .map((i) => `${i + 1}: ${lines[i]!.slice(0, 300)}`)
-    .join('\n')
-    .slice(0, priority >= 20 ? 3500 : 1200);
+    .map((i) => numbered[i])
+    .join('\n');
 }
 
 /** Prioritize architecture evidence, then alternate module roots to avoid directory starvation. */
@@ -246,7 +276,7 @@ export async function scanProject(
         filesFound++;
         try {
           const text = await read(full, MAX_FILE_BYTES);
-          if (text !== null) sources.push({ path, evidence: excerpt(text, rank(path)), rank: rank(path) });
+          if (text !== null) sources.push({ path, text: redact(text), rank: rank(path) });
         } catch {
           check();
           warnings.add(`Could not read source file ${path}.`);
@@ -269,8 +299,13 @@ export async function scanProject(
   const heading = `Repository evidence from current working-tree files (excerpts, not full source).\nProject: ${JSON.stringify(basename(base))}\nInventory (bounded): ${JSON.stringify(inventory)}\n`;
   const chunks: string[] = [];
   let used = heading.length + 350;
-  for (const source of order(sources)) {
-    const chunk = JSON.stringify({ path: source.path, lines: source.evidence });
+  const ordered = order(sources);
+  for (const [i, source] of ordered.entries()) {
+    const overhead = JSON.stringify({ path: source.path, lines: '' }).length + 1;
+    const remaining = maxChars - used - overhead;
+    if (remaining < 100) continue;
+    const budget = Math.min(6000, remaining, Math.max(600, Math.floor(remaining / (ordered.length - i))));
+    const chunk = JSON.stringify({ path: source.path, lines: excerpt(source.text, source.rank, budget) });
     if (used + chunk.length + 1 > maxChars) continue;
     chunks.push(chunk);
     used += chunk.length + 1;

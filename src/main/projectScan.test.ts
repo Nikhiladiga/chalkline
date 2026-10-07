@@ -70,6 +70,54 @@ it('traces source evidence, applies nested ignores and never includes credential
   expect((await scanProject(root, { maxChars: 16000 })).context).toBe(scan.context);
 });
 
+it('keeps startup, CRUD and scheduled sync calls when imports precede runtime behavior', async () => {
+  const root = await fixture();
+  const imports = Array.from({ length: 12 }, (_, i) => `import helper${i} from './helper${i}';`).join('\n');
+  await file(
+    root,
+    'src/server.ts',
+    `${imports}\nconst app = express();\napp.use('/books', booksRouter);\napp.use('/', searchRouter);\n\nasync function startServer() {\n  await sequelize.authenticate();\n  await initializeTypesense();\n  await determineAndRunStartupSync();\n  startBackgroundSyncWorker();\n  app.listen(3000);\n}\nstartServer();`,
+  );
+  await file(
+    root,
+    'src/routes/books.ts',
+    `${imports}\n${'// pagination and validation\n'.repeat(30)}router.post('/', async (req, res) => {\n  const book = await Book.create(req.body);\n  await typesenseClient.collections('books').documents().upsert(book);\n});`,
+  );
+  await file(
+    root,
+    'src/search/worker.ts',
+    `import cron from 'node-cron';\nimport { runIncrementalSync } from './sync';\n\nexport function startBackgroundSyncWorker() {\n  console.log('Starting worker');\n  cron.schedule('* * * * *', async () => {\n    await runIncrementalSync();\n  });\n}`,
+  );
+  const scan = await scanProject(root, { maxChars: 8000 });
+  expect(scan.filesIncluded).toBe(3);
+  for (const call of [
+    'sequelize.authenticate()',
+    'initializeTypesense()',
+    'determineAndRunStartupSync()',
+    'startBackgroundSyncWorker()',
+    'app.listen(3000)',
+    'Book.create(req.body)',
+    'documents().upsert(book)',
+    'cron.schedule(',
+    'await runIncrementalSync()',
+  ])
+    expect(scan.context).toContain(call);
+});
+
+it('prioritizes runtime calls late in a long file over an import-heavy header', async () => {
+  const root = await fixture();
+  await file(
+    root,
+    'src/server.ts',
+    `${Array.from({ length: 100 }, (_, i) => `import helper${i} from './helper${i}';`).join('\n')}\n${'// implementation details\n'.repeat(100)}app.post('/books', async (req, res) => {\n  const book = await Book.create(req.body);\n  await typesenseClient.collections('books').documents().upsert(book);\n});\napp.listen(3000);`,
+  );
+  const scan = await scanProject(root, { maxChars: 4000 });
+  expect(scan.context.length).toBeLessThanOrEqual(4000);
+  expect(scan.context).toContain('Book.create(req.body)');
+  expect(scan.context).toContain('documents().upsert(book)');
+  expect(scan.context).toContain('app.listen(3000)');
+});
+
 it('fails closed for oversized ignore rules and skips unsafe nested ignore scopes', async () => {
   const root = await fixture();
   await file(root, '.gitignore', `${'# padding\n'.repeat(4000)}private-config.json\n`);
