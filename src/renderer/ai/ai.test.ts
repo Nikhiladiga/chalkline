@@ -1,0 +1,432 @@
+import { stockLibrary } from '@eraserlabs/diagram-templates';
+import { stockNormalizers } from '@eraserlabs/diagram-templates/normalizers';
+import { createResolver, type Resolver } from '@eraserlabs/resolve';
+import { beforeAll, describe, expect, it } from 'vitest';
+import aliases from '../../../icons/aliases.json';
+import names from '../../../icons/names.json';
+import type { Box, Doc } from '../engine/types';
+import { fixIcons } from './iconFix';
+import { fitContainers, mergePositions, placeNew } from './merge';
+import { extractJson, toSplit } from './parse';
+import { type AiDeps, runAi } from './pipeline';
+import { buildMessages, FEW_SHOT, iconSubset, systemPrompt } from './prompt';
+import { stripForModel } from './strip';
+
+let resolver: Resolver;
+beforeAll(async () => {
+  resolver = await createResolver({ library: stockLibrary, normalizers: stockNormalizers });
+});
+const schemaOf = (tag: string) => resolver.tagSchema(tag) as any;
+
+describe('extractJson', () => {
+  it('reads a bare object', () => {
+    expect(extractJson('{"a":1}')).toEqual({ a: 1 });
+  });
+
+  it('reads a fenced block surrounded by prose', () => {
+    expect(extractJson('Here you go:\n```json\n{"a":{"b":[1,2]}}\n```\nEnjoy')).toEqual({ a: { b: [1, 2] } });
+  });
+
+  it('ignores <think> reasoning, even when it contains braces', () => {
+    expect(extractJson('<think>maybe {"x":0}?</think>\n{"a":2}')).toEqual({ a: 2 });
+  });
+
+  it('handles braces inside strings', () => {
+    expect(extractJson('{"t":"a } b {"}')).toEqual({ t: 'a } b {' });
+  });
+
+  it('throws a readable error on truncated output', () => {
+    expect(() => extractJson('{"entities":[{"id":"a"')).toThrow(/incomplete|JSON/i);
+  });
+
+  it('throws when there is no object at all', () => {
+    expect(() => extractJson('Sorry, I cannot do that.')).toThrow(/JSON/);
+  });
+});
+
+describe('toSplit', () => {
+  it('splits an elements envelope by from/to', () => {
+    const d = toSplit({
+      elements: [
+        { tag: 'Shape', id: 'a', x: 0, y: 0 },
+        { from: 'a', to: 'a' },
+      ],
+    });
+    expect(d).toEqual({
+      entities: [{ tag: 'Shape', id: 'a', x: 0, y: 0 }],
+      connections: [{ from: 'a', to: 'a' }],
+    });
+  });
+
+  it('fills a missing connections list', () => {
+    expect(toSplit({ entities: [] })).toEqual({ entities: [], connections: [] });
+  });
+
+  it('moves connections the model put in entities', () => {
+    const d = toSplit({ entities: [{ tag: 'Relationship', from: 'a', to: 'b' }], connections: [] });
+    expect(d.connections).toHaveLength(1);
+    expect(d.entities).toHaveLength(0);
+  });
+});
+
+describe('stripForModel', () => {
+  it('drops schema defaults, the default connection tag and routes', () => {
+    const doc: Doc = {
+      entities: [
+        { tag: 'Shape', id: 'a', x: 0, y: 0, shape: 'rectangle', styleMode: 'shadow', color: 'blue' },
+      ],
+      connections: [
+        { tag: 'Relationship', from: 'a', to: 'a', cornerStyle: 'elbow', points: [], x: 1, y: 2, label: 'x' },
+      ],
+    };
+    expect(stripForModel(doc, schemaOf)).toEqual({
+      entities: [{ tag: 'Shape', id: 'a', x: 0, y: 0, color: 'blue' }],
+      connections: [{ from: 'a', to: 'a', label: 'x' }],
+    });
+  });
+});
+
+describe('fixIcons', () => {
+  const doc = (icon: string): Doc => ({
+    entities: [{ tag: 'Icon', id: 'a', x: 0, y: 0, icon }],
+    connections: [],
+  });
+
+  it('keeps known names', () => {
+    expect(fixIcons(doc('aws-lambda'), names, aliases).fixes).toEqual([]);
+  });
+
+  it('maps aliases', () => {
+    const r = fixIcons(doc('Lambda'), names, aliases);
+    expect(r.doc.entities[0]!.icon).toBe('aws-lambda');
+    expect(r.fixes).toEqual(['Lambda → aws-lambda']);
+  });
+
+  it('fuzzy-matches near misses', () => {
+    expect(fixIcons(doc('kubernets'), names, aliases).doc.entities[0]!.icon).toBe('kubernetes');
+    expect(fixIcons(doc('aws-dynamo-db'), names, aliases).doc.entities[0]!.icon).toBe('aws-dynamodb');
+  });
+
+  it('fixes title icons on groups', () => {
+    const d: Doc = {
+      entities: [{ tag: 'Group', id: 'g', x: 0, y: 0, title: { text: 'VPC', icon: 'vpc' } }],
+      connections: [],
+    };
+    expect((fixIcons(d, names, aliases).doc.entities[0]!.title as any).icon).toBe('aws-vpc');
+  });
+
+  it('leaves hopeless names for the placeholder', () => {
+    expect(fixIcons(doc('zzqqxxy'), names, aliases).doc.entities[0]!.icon).toBe('zzqqxxy');
+  });
+});
+
+describe('mergePositions', () => {
+  const prev: Doc = { entities: [{ tag: 'Shape', id: 'a', x: 10, y: 10 }], connections: [] };
+  const next: Doc = {
+    entities: [
+      { tag: 'Shape', id: 'a', x: 500, y: 500, color: 'red' },
+      { tag: 'Shape', id: 'b', x: 200, y: 10 },
+    ],
+    connections: [{ from: 'a', to: 'b' }],
+  };
+
+  it('keeps existing coordinates and takes everything else from the model', () => {
+    const m = mergePositions(prev, next, false);
+    expect(m.entities[0]).toEqual({ tag: 'Shape', id: 'a', x: 10, y: 10, color: 'red' });
+    expect(m.entities[1]).toMatchObject({ id: 'b', x: 200, y: 10 });
+  });
+
+  it('lets the model move things when allowed', () => {
+    expect(mergePositions(prev, next, true).entities[0]).toMatchObject({ x: 500, y: 500 });
+  });
+});
+
+describe('placeNew', () => {
+  it('moves the element by the footprint delta, so a caption overhang is kept', () => {
+    const doc: Doc = {
+      entities: [
+        { tag: 'Shape', id: 'a', x: 0, y: 0 },
+        { tag: 'Icon', id: 'n', x: 30, y: 10, icon: 'docker' },
+      ],
+      connections: [{ from: 'a', to: 'n' }],
+    };
+    // n's footprint starts 20px left of its glyph (caption wider than the icon).
+    const boxes: Record<string, Box> = {
+      a: { x: 0, y: 0, width: 100, height: 50 },
+      n: { x: 10, y: 10, width: 90, height: 80 },
+    };
+    const n = placeNew(doc, boxes, ['n']).entities[1]!;
+    expect(n.x).toBe(100 + 60 + 20); // footprint at right of a + gap, glyph 20px inside it
+  });
+
+  it('moves an overlapping new node next to its first connected neighbor', () => {
+    const doc: Doc = {
+      entities: [
+        { tag: 'Shape', id: 'a', x: 0, y: 0 },
+        { tag: 'Shape', id: 'n', x: 10, y: 10 },
+      ],
+      connections: [{ from: 'a', to: 'n' }],
+    };
+    const boxes: Record<string, Box> = {
+      a: { x: 0, y: 0, width: 100, height: 50 },
+      n: { x: 10, y: 10, width: 100, height: 50 },
+    };
+    const out = placeNew(doc, boxes, ['n']);
+    const n = out.entities[1]!;
+    expect(n.x).toBeGreaterThanOrEqual(160);
+    expect(n.y).toBe(0);
+  });
+
+  it('steps down until the slot is free', () => {
+    const doc: Doc = {
+      entities: [
+        { tag: 'Shape', id: 'a', x: 0, y: 0 },
+        { tag: 'Shape', id: 'b', x: 160, y: 0 },
+        { tag: 'Shape', id: 'n', x: 0, y: 0 },
+      ],
+      connections: [{ from: 'n', to: 'a' }],
+    };
+    const boxes: Record<string, Box> = {
+      a: { x: 0, y: 0, width: 100, height: 50 },
+      b: { x: 160, y: 0, width: 100, height: 50 },
+      n: { x: 0, y: 0, width: 100, height: 50 },
+    };
+    const n = placeNew(doc, boxes, ['n']).entities[2]!;
+    expect(n.y).toBeGreaterThanOrEqual(90);
+  });
+});
+
+describe('fitContainers', () => {
+  it('grows a nested group and then its parent group, so nothing sticks out', () => {
+    const doc: Doc = {
+      entities: [
+        { tag: 'Group', id: 'outer', x: 0, y: 0, width: 300, height: 200 },
+        { tag: 'Group', id: 'inner', x: 20, y: 40, width: 200, height: 120, containerId: 'outer' },
+        { tag: 'Shape', id: 'n', x: 260, y: 60, containerId: 'inner' },
+      ],
+      connections: [],
+    };
+    const boxes: Record<string, Box> = {
+      outer: { x: 0, y: 0, width: 300, height: 200 },
+      inner: { x: 20, y: 40, width: 200, height: 120 },
+      n: { x: 260, y: 60, width: 100, height: 50 },
+    };
+    const out = fitContainers(doc, boxes);
+    const inner = out.entities[1]!;
+    const outer = out.entities[0]!;
+    expect(20 + (inner.width as number)).toBeGreaterThanOrEqual(360 + 32);
+    expect(outer.width as number).toBeGreaterThanOrEqual(20 + (inner.width as number) + 32);
+  });
+});
+
+describe('prompt', () => {
+  it('every few-shot example is a valid document', async () => {
+    for (const ex of FEW_SHOT) {
+      const v = await resolver.validate(ex.doc);
+      expect(v.errors).toEqual([]);
+    }
+  });
+
+  it('every few-shot icon exists in the catalog', () => {
+    const known = new Set(names);
+    for (const ex of FEW_SHOT) {
+      for (const e of ex.doc.entities)
+        if (typeof e.icon === 'string') expect(known.has(e.icon), e.icon).toBe(true);
+    }
+  });
+
+  it('picks provider icons from keywords and caps the list', () => {
+    const aws = iconSubset('AWS serverless API with Lambda', names);
+    expect(aws).toContain('aws-lambda');
+    expect(aws).toContain('server');
+    expect(aws.length).toBeLessThanOrEqual(300);
+    expect(iconSubset('a flowchart for onboarding', names).some((n) => n.startsWith('aws-'))).toBe(false);
+  });
+
+  it('uses simple rules and examples for generation', () => {
+    const msgs = buildMessages('generate', 'x', { entities: [], connections: [] }, ['server'], schemaOf);
+    expect(msgs[0]!.content).toBe(systemPrompt(['server']));
+    expect(msgs[0]!.content).toContain('clean and minimal');
+    expect(msgs.filter((m) => m.role === 'assistant').map((m) => JSON.parse(m.content))).toEqual(
+      FEW_SHOT.map((ex) => ex.doc),
+    );
+  });
+
+  it('includes the current document in edit mode', () => {
+    const current: Doc = { entities: [{ tag: 'Shape', id: 'web', x: 0, y: 0 }], connections: [] };
+    const msgs = buildMessages('edit', 'add a cache', current, ['server'], schemaOf);
+    const last = msgs.at(-1)!.content;
+    expect(last).toContain('"id":"web"');
+    expect(last).toContain('add a cache');
+    expect(msgs[0]!.content).toBe(systemPrompt(['server']));
+  });
+});
+
+describe('runAi', () => {
+  const good = JSON.stringify({
+    entities: [
+      { tag: 'Icon', id: 'api', x: 40, y: 40, icon: 'lambda', texts: [{ text: 'API' }] },
+      { tag: 'Icon', id: 'db', x: 300, y: 40, icon: 'aws-dynamodb', texts: [{ text: 'DB' }] },
+    ],
+    connections: [{ from: 'api', to: 'db' }],
+  });
+  const bad = JSON.stringify({ entities: [{ tag: 'Shap', id: 'a', x: 0, y: 0 }], connections: [] });
+  const farApart = async (d: Doc) =>
+    Object.fromEntries(d.entities.map((e) => [e.id, { x: e.x, y: e.y, width: 50, height: 50 }]));
+
+  const deps = (replies: string[], extra: Partial<AiDeps> = {}) => {
+    const calls: { role: string; content: string }[][] = [];
+    const stages: string[] = [];
+    const d: AiDeps = {
+      chat: async (messages) => {
+        calls.push(messages);
+        return replies.shift() ?? '';
+      },
+      validate: (doc) => resolver.validate(doc),
+      measure: farApart,
+      names,
+      aliases,
+      schemaOf,
+      maxRepairs: 2,
+      onStage: (s) => stages.push(s),
+      ...extra,
+    };
+    return { d, calls, stages };
+  };
+
+  it('repairs an invalid reply by sending the issues back', async () => {
+    const { d, calls, stages } = deps([bad, good]);
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.at(-1)!.content).toMatch(/E_UNKNOWN_TAG|E_/);
+    expect(stages).toContain('repairing 1/2');
+  });
+
+  it('applies icon fix-ups and reports them', async () => {
+    const { d } = deps([good]);
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    if (!r.ok) throw new Error(r.message);
+    expect(r.doc.entities[0]!.icon).toBe('aws-lambda');
+    expect(r.fixes).toEqual(['lambda → aws-lambda']);
+  });
+
+  it('gives up after maxRepairs and returns the best draft', async () => {
+    const { d, calls } = deps([bad, bad, bad, good]);
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    expect(r.ok).toBe(false);
+    expect(calls).toHaveLength(3);
+    if (!r.ok) expect(r.draft).toContain('Shap');
+  });
+
+  it('asks for JSON again when the reply is not JSON', async () => {
+    const { d, calls } = deps(['I think you want a diagram!', good]);
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    expect(r.ok).toBe(true);
+    expect(calls[1]!.at(-1)!.content).toMatch(/JSON/);
+  });
+
+  it('runs auto-layout when a fresh diagram overlaps', async () => {
+    const stacked = async (d: Doc) =>
+      Object.fromEntries(d.entities.map((e) => [e.id, { x: 0, y: 0, width: 50, height: 50 }]));
+    const { d, stages } = deps([good], { measure: stacked });
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    expect(stages).toContain('layout fallback');
+    if (r.ok) expect(r.laidOut).toBe(true);
+  });
+
+  it('keeps existing positions in edit mode', async () => {
+    const current: Doc = {
+      entities: [{ tag: 'Icon', id: 'api', x: 5, y: 7, icon: 'aws-lambda' }],
+      connections: [],
+    };
+    const { d } = deps([good]);
+    const r = await runAi(d, { mode: 'edit', prompt: 'add db', current, allowMove: false });
+    if (!r.ok) throw new Error(r.message);
+    expect(r.doc.entities[0]).toMatchObject({ id: 'api', x: 5, y: 7 });
+  });
+
+  it('treats an empty diagram as an error to repair', async () => {
+    const { d, calls } = deps([JSON.stringify({ entities: [], connections: [] }), good]);
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    expect(r.ok).toBe(true);
+    expect(calls[1]!.at(-1)!.content).toMatch(/E_EMPTY/);
+  });
+
+  it('sends an edit that silently drops most existing elements back for repair', async () => {
+    const current: Doc = {
+      entities: ['a', 'b', 'c', 'd'].map((id, i) => ({ tag: 'Shape', id, x: i * 200, y: 0 })),
+      connections: [],
+    };
+    const onlyNew = JSON.stringify({
+      entities: [{ tag: 'Shape', id: 'cache', x: 0, y: 200 }],
+      connections: [],
+    });
+    const full = JSON.stringify({
+      entities: [...current.entities, { tag: 'Shape', id: 'cache', x: 0, y: 200 }],
+      connections: [],
+    });
+    const { d, calls } = deps([onlyNew, full]);
+    const r = await runAi(d, { mode: 'edit', prompt: 'add a cache', current, allowMove: false });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.at(-1)!.content).toMatch(/E_DROPPED.*a, b, c, d/s);
+    if (!r.ok) throw new Error(r.message);
+    expect(r.doc.entities).toHaveLength(5);
+  });
+
+  it('allows removals the user asked for', async () => {
+    const current: Doc = {
+      entities: ['a', 'b'].map((id, i) => ({ tag: 'Shape', id, x: i * 200, y: 0 })),
+      connections: [],
+    };
+    const { d, calls } = deps([JSON.stringify({ entities: [current.entities[0]], connections: [] })]);
+    const r = await runAi(d, { mode: 'edit', prompt: 'remove b', current, allowMove: false });
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('reports a transport error without throwing', async () => {
+    const { d } = deps([], {
+      chat: async () => {
+        throw new Error("Can't reach LM Studio");
+      },
+    });
+    const r = await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: { entities: [], connections: [] },
+      allowMove: false,
+    });
+    expect(r).toMatchObject({ ok: false, message: "Can't reach LM Studio" });
+  });
+});
