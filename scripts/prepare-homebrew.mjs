@@ -25,7 +25,7 @@ const app = `${pkg.productName}.app/Contents`;
 const plist = execFileSync('unzip', ['-p', archive, `${app}/Info.plist`]);
 const info = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', '--', '-'], { input: plist, encoding: 'utf8' }));
 if (info.CFBundleDisplayName !== pkg.productName || info.CFBundleExecutable !== pkg.productName ||
-    info.CFBundleShortVersionString !== pkg.version || info.CFBundleIdentifier !== 'dev.open-eraser.app')
+    info.CFBundleShortVersionString !== pkg.version || info.CFBundleIdentifier !== 'dev.chalkline.app')
   throw new Error('The archive name, version or bundle identity does not match this app.');
 const icon = execFileSync('unzip', ['-p', archive, `${app}/Resources/${info.CFBundleIconFile}`]);
 if (icon.toString('ascii', 0, 4) !== 'icns') throw new Error('The archive is missing its macOS icon.');

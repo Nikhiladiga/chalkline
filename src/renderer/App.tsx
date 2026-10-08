@@ -129,7 +129,7 @@ function useMenuAndFiles(): void {
   }, [doc, dirty, codeDraft]);
   useEffect(() => {
     void window.api.invoke('app:dirty', dirty);
-    document.title = `${filePath?.split(/[\\/]/).pop() ?? 'Untitled'}${dirty ? ' (edited)' : ''} — Open Eraser`;
+    document.title = `${filePath?.split(/[\\/]/).pop() ?? 'Untitled'}${dirty ? ' (edited)' : ''} — Chalkline`;
   }, [dirty, filePath]);
 }
 

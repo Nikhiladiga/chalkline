@@ -1,5 +1,5 @@
-appId: dev.open-eraser.app
-productName: Open Eraser
+appId: dev.chalkline.app
+productName: Chalkline
 artifactName: '${name}-${version}-${arch}.${ext}'
 directories:
   output: dist

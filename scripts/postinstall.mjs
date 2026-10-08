@@ -10,8 +10,8 @@ if (process.platform === 'darwin') {
   const plist = 'node_modules/electron/dist/Electron.app/Contents/Info.plist';
   const tmp = `${plist}.tmp`;
   // Write a new file and rename it over, never edit in place: the file could be a hard link into a shared cache.
-  execFileSync('plutil', ['-replace', 'CFBundleName', '-string', 'Open Eraser', '-o', tmp, plist]);
-  execFileSync('plutil', ['-replace', 'CFBundleDisplayName', '-string', 'Open Eraser', tmp]);
+  execFileSync('plutil', ['-replace', 'CFBundleName', '-string', 'Chalkline', '-o', tmp, plist]);
+  execFileSync('plutil', ['-replace', 'CFBundleDisplayName', '-string', 'Chalkline', tmp]);
   renameSync(tmp, plist);
   // Editing Info.plist breaks the bundle's signature; re-sign ad hoc so macOS still launches it.
   const app = realpathSync('node_modules/electron/dist/Electron.app');

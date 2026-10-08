@@ -2,7 +2,7 @@ import aliases from '../../../icons/aliases.json';
 import names from '../../../icons/names.json';
 
 export const iconNames: string[] = names;
-export const ICON_MIME = 'application/x-open-eraser-icon';
+export const ICON_MIME = 'application/x-chalkline-icon';
 export const iconCategories = {
   all: 'All icons',
   aws: 'AWS',

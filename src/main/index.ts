@@ -43,7 +43,7 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#010102',
-    title: 'Open Eraser',
+    title: 'Chalkline',
     // Packaged builds take the icon from the bundle; this covers `pnpm dev` on Windows/Linux.
     ...(app.isPackaged ? {} : { icon: join(app.getAppPath(), 'build/icon.png') }),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',

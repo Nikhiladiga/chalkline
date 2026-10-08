@@ -12,12 +12,12 @@ const contents = join(bundle, 'Contents');
 const plist = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', join(contents, 'Info.plist')], { encoding: 'utf8' }));
 for (const key of ['CFBundleName', 'CFBundleDisplayName', 'CFBundleExecutable'])
   if (plist[key] !== pkg.productName) throw new Error(`${key} does not match ${pkg.productName}.`);
-if (plist.CFBundleShortVersionString !== pkg.version || plist.CFBundleIdentifier !== 'dev.open-eraser.app')
+if (plist.CFBundleShortVersionString !== pkg.version || plist.CFBundleIdentifier !== 'dev.chalkline.app')
   throw new Error('Bundle identity/version does not match the release.');
 const icon = readFileSync(join(contents, 'Resources', plist.CFBundleIconFile));
 if (icon.toString('ascii', 0, 4) !== 'icns') throw new Error('Missing packaged application icon.');
 execFileSync('codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' });
-const userData = mkdtempSync(join(tmpdir(), 'open-eraser-package-'));
+const userData = mkdtempSync(join(tmpdir(), 'chalkline-package-'));
 const env = { ...process.env, PATH: '/usr/bin:/bin', DG_TEST: '1', DG_USER_DATA: userData,
   DG_LLM_PROVIDER: 'codex', DG_LLM_MODEL: 'default', DG_SAVE_DIR: userData };
 delete env.ELECTRON_RUN_AS_NODE;

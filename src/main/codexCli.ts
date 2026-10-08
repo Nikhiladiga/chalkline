@@ -107,7 +107,7 @@ export function codexModels(s: Settings): Promise<string[]> {
     send({
       id: 0,
       method: 'initialize',
-      params: { clientInfo: { name: 'open-eraser', title: 'Open Eraser', version: '0.1.0' } },
+      params: { clientInfo: { name: 'chalkline', title: 'Chalkline', version: '0.1.0' } },
     });
   });
 }

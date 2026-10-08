@@ -69,7 +69,7 @@ final class WebKitProbe: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             view = WKWebView(frame: NSRect(x: 0, y: 0, width: 1440, height: 900), configuration: config)
             view.navigationDelegate = self
             window = NSWindow(contentRect: view.frame, styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            window.title = "Open Eraser — native WebKit compatibility check"
+            window.title = "Chalkline — native WebKit compatibility check"
             window.contentView = view
             window.makeKeyAndOrderFront(nil)
             let page = CommandLine.arguments.count > 2

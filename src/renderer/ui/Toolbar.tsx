@@ -90,7 +90,7 @@ export function Toolbar() {
     <header className={`toolbar${isMac ? ' mac' : ''}`}>
       <div className="brand">
         <BrandMark />
-        Open Eraser
+        Chalkline
       </div>
       <span className="file-name" title={filePath ?? undefined}>
         {name}

@@ -1,6 +1,6 @@
 {
-  "name": "open-eraser",
-  "productName": "Open Eraser",
+  "name": "chalkline",
+  "productName": "Chalkline",
   "version": "0.1.0",
   "private": true,
   "description": "Local-first AI diagram editor on the Eraser Diagrams format",
