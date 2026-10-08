@@ -1,6 +1,8 @@
 # Repository setup and Tauri check — 7 October 2026
 
-Repository: [Nikhiladiga/chalkline](https://github.com/Nikhiladiga/chalkline). The GitHub repository name stays `chalkline`; the application is named **Open Eraser**. Local Git was initialized on `main` and connected to this repository. Generated bundles, dependencies, local settings, credentials and the local detailed-mode history bundle are excluded.
+Application names and command examples were updated to Chalkline on 8 October. The original Tauri findings remain unchanged.
+
+Repository: [Nikhiladiga/chalkline](https://github.com/Nikhiladiga/chalkline). The application is **Chalkline**. Local Git was initialized on `main` and connected to this repository. Generated bundles, dependencies, local settings, credentials and the local detailed-mode history bundle are excluded.
 
 ## Logical commits
 
@@ -46,8 +48,8 @@ node node_modules/vite/bin/vite.js preview --outDir out/renderer --host 127.0.0.
 Compile and run the native probe in the second:
 
 ```sh
-xcrun swiftc -module-cache-path /private/tmp/open-eraser-swift-cache scripts/check-webkit.swift -o /private/tmp/open-eraser-webkit-check
-/private/tmp/open-eraser-webkit-check "$PWD" http://127.0.0.1:4179/
+xcrun swiftc -module-cache-path /private/tmp/chalkline-swift-cache scripts/check-webkit.swift -o /private/tmp/chalkline-webkit-check
+/private/tmp/chalkline-webkit-check "$PWD" http://127.0.0.1:4179/
 ```
 
 Stop the preview server afterward. The probe uses the local legacy icon cache at `~/Library/Application Support/diagrammer/icon-cache`; missing cached icons can affect warnings and measurements. It prints a JSON report, exits after the check, and does not change app settings or saved diagrams. Exit code zero means a report was produced; inspect the report's fixture counts, errors and failures to assess compatibility.

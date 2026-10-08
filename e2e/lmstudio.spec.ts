@@ -1,4 +1,4 @@
-// Real-model acceptance (PLAN.md Phase 3). Skipped unless LM Studio answers on :1234.
+// Real-model acceptance. Skipped unless LM Studio answers on :1234.
 // RUNS=10 pnpm exec playwright test e2e/lmstudio.spec.ts
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

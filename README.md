@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="build/icon.png" alt="Open Eraser" width="88" />
+  <img src="build/icon.png" alt="Chalkline" width="88" />
 </p>
 
-<h1 align="center">Open Eraser</h1>
+<h1 align="center">Chalkline</h1>
 
 <p align="center">
   Architecture diagrams from ideas, code and your own AI harness.
@@ -16,11 +16,11 @@
   <a href="https://github.com/Nikhiladiga/chalkline/issues">Report an issue</a>
 </p>
 
-![Open Eraser desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel](docs/assets/open-eraser-demo.png)
+![Chalkline desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel](docs/assets/chalkline-demo.png)
 
 *AWS serverless demo: API Gateway invokes Lambda, which connects to DynamoDB and S3. The icon palette, canvas and AI panel share one workspace.*
 
-Open Eraser is a desktop application for creating and editing architecture diagrams. Describe a system, choose a code folder, or draw directly with service icons and connectors. Refine the result visually or in JSON, then export it for documentation and presentations.
+Chalkline is a desktop application for creating and editing architecture diagrams. Describe a system, choose a code folder, or draw directly with service icons and connectors. Refine the result visually or in JSON, then export it for documentation and presentations.
 
 Use an installed Codex or Claude Code CLI with its existing login, a local model through LM Studio, or an OpenAI-compatible API. You can also draw manually without configuring AI.
 
@@ -68,7 +68,7 @@ pnpm install
 pnpm dev
 ```
 
-Installation downloads Electron. `pnpm dev` opens the application with hot reload. The repository retains the name `chalkline`; the application is named **Open Eraser**.
+Installation downloads Electron. `pnpm dev` opens Chalkline with hot reload.
 
 ### Create your first diagram
 
@@ -169,9 +169,7 @@ No public binary release or Homebrew install command is available yet. Follow [H
 - [Production readiness review](docs/production-readiness-2026-10-07.md)
 - [Homebrew and macOS release preparation](docs/homebrew-release.md)
 - [Tauri feasibility](docs/tauri-feasibility.md)
-- [Product and integration specification](PLAN.md)
-- [Design guidance](DESIGN.md)
-- [Implementation decisions](DECISIONS.md)
+- [Contributor and agent guidance](AGENT.md)
 
 ## License and credits
 

@@ -1,5 +1,7 @@
 # Production readiness review — 7 October 2026
 
+Application names and example paths were updated to Chalkline on 8 October. The review results below remain historical; current branding and packaged-app checks are recorded in the [rename verification](chalkline-branding.md).
+
 **Verdict: suitable for a macOS Apple Silicon beta; not yet ready for an unrestricted public release.** The confirmed code-level release blockers found in this review are fixed and the local packaged application works. Remaining release gates are a chosen distribution license, public repository/release/tap, Apple signing/notarization, and clean-machine installation/upgrade checks. Windows, Intel macOS and Linux releases have not received native acceptance testing.
 
 This was a focused whole-application review of the renderer/document lifecycle, generation and editing, source scanning, native IPC/providers/files/settings/icons/exports, packaging and existing regressions. It includes independent backend and persistence review. It is not a guarantee that every AI-generated architecture is correct or an exhaustive security audit.
@@ -19,7 +21,7 @@ This was a focused whole-application review of the renderer/document lifecycle, 
 | P2 | Windows CLI discovery ignored native executable/npm wrapper extensions and installer paths. | PATH/PATHEXT/npm/WinGet/native paths are resolved, and both providers use pinned maintained `cross-spawn` for safe launcher argument handling. Windows path fixtures pass; actual Windows execution is still a release gate. |
 | P2 | PNG render timeout/load failure leaked IPC listeners. | `src/main/export.ts` always cleans its IPC/load listeners and timer, rejects main-frame load failure promptly, and destroys the export window. Unit failure-path checks and real desktop/packaged exports pass. |
 | P2 | Packaging registered all `.json` files without implementing OS file-open handling. | Removed the incorrect association. File → Open remains supported; the app no longer claims double-click support it cannot fulfill. |
-| Release | Public executable and UI still used Chalkline. | Updated package/bundle/native-window/menu/toolbar/HTML/RPC branding to **Open Eraser**, identifier `dev.open-eraser.app`, and cask/artifact name `open-eraser`. Legacy `diagrammer` user data is preserved. |
+| Release | Product naming needed to agree across the executable, UI and packaging. | Current branding is **Chalkline**, identifier `dev.chalkline.app`, and cask/artifact name `chalkline`. Legacy `diagrammer` user data is preserved. See the [8 October rename verification](chalkline-branding.md). |
 
 User diagram writes now use a temporary sibling file followed by atomic replacement, rather than truncating the existing diagram. Recovery writes use the same approach. Failure to record the recent-file list no longer misreports an already successful save as failed.
 
@@ -33,7 +35,7 @@ User diagram writes now use a temporary sibling file followed by atomic replacem
 | Rendering fixtures | 24 corpus layouts match macOS golden boxes within ±2 px |
 | Real installed Codex source-folder generation | Passed: 6 entities and 4 connections for a synthetic API/Postgres/Redis/worker project; no unsupported AWS topology, valid diagram, save/SVG export, source unchanged |
 | macOS ARM64 ZIP packaging | Passed; ad hoc signed local testing build, **not notarized** |
-| Packaged app launch with Finder-like `/usr/bin:/bin` PATH | Passed `app.isPackaged=true`, native name **Open Eraser**, eight Codex models plus default, zero render errors, save/PNG/SVG export |
+| Packaged app launch with Finder-like `/usr/bin:/bin` PATH | Passed `app.isPackaged=true`, native name **Chalkline**, eight Codex models plus default, zero render errors, save/PNG/SVG export |
 | Packaged icon and metadata | Passed bundle/display/executable names, ID, version 0.1.0, `icon.icns` (317,226 bytes), macOS minimum 13.0, and deep/strict signature integrity check |
 | Homebrew generator | Validates real ZIP name/version/identity/icon/Mach-O CPU, computes SHA, generated Ruby passes syntax check. Test used a reserved example repository in `/private/tmp`; no real public cask URL was fabricated. |
 | Signed-release guard | Refuses missing Developer ID identity/notarization credentials. Full Developer ID signing, notarization/stapling and Gatekeeper acceptance remain untested until credentials are supplied. |
@@ -42,15 +44,15 @@ The sandbox initially prevented Electron startup and localhost provider tests; t
 
 ## Final binary name and icon
 
-The actual freshly built executable is:
+The current executable path is:
 
 ```text
-dist/mac-arm64/Open Eraser.app/Contents/MacOS/Open Eraser
+dist/mac-arm64/Chalkline.app/Contents/MacOS/Chalkline
 ```
 
-The application bundle reports `CFBundleName`, `CFBundleDisplayName`, `CFBundleExecutable` and native `app.getName()` as **Open Eraser**. Its icon resource is embedded and referenced by the bundle, and the 1024 × 1024 source icon was visually inspected. The existing drawing/connector logo is retained; the name change did not introduce a new logo. These checks cover the final macOS bundle, not only the development toolbar.
+The application bundle reports `CFBundleName`, `CFBundleDisplayName`, `CFBundleExecutable` and native `app.getName()` as **Chalkline**. Its icon resource is embedded and referenced by the bundle, and the 1024 × 1024 source icon was visually inspected. The existing drawing/connector logo is retained; the name change did not introduce a new logo. These checks cover the final macOS bundle, not only the development toolbar.
 
-The local archive is `dist/open-eraser-0.1.0-arm64.zip`, approximately 124 MiB downloaded and 300 MiB installed. This is a local test artifact, not the signed/notarized public download. Windows/Linux use the same name/icon configuration, but their actual executable/installer appearance has not been verified on those operating systems. Already-installed older app copies are not replaced by this build.
+The current archive naming convention is `dist/chalkline-0.1.0-arm64.zip`. The 7 October local test archive was approximately 124 MiB downloaded and 300 MiB installed; it was not a signed/notarized public download. Windows/Linux use the same name/icon configuration, but their actual executable/installer appearance has not been verified on those operating systems. Already-installed older app copies are not replaced by a build.
 
 ## What still needs preparation
 
