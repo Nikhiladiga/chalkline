@@ -1,48 +1,65 @@
-<img src="build/icon.png" alt="Open Eraser application icon" width="80" />
+<p align="center">
+  <img src="build/icon.png" alt="Open Eraser" width="88" />
+</p>
 
-# Open Eraser
+<h1 align="center">Open Eraser</h1>
 
-Open Eraser is a desktop editor for architecture diagrams. Describe a system, point it at a code folder, or build a diagram yourself using service icons and connectors. Refine the result on the canvas or in its JSON source, then export it for documentation and presentations.
+<p align="center">
+  Architecture diagrams from ideas, code and your own AI harness.
+</p>
 
-Use your installed **Codex or Claude Code CLI**, a local model through **LM Studio**, or an **OpenAI-compatible API**. Manual diagram editing does not require an AI provider.
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#supported-harnesses-and-providers">Harnesses</a> ·
+  <a href="#getting-started">Get started</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="https://github.com/Nikhiladiga/chalkline/issues">Report an issue</a>
+</p>
 
-The app keeps diagram files on your computer. AI generation sends your prompt and selected diagram or source evidence to the provider you choose. An installed CLI uses its own login and provider; it does not necessarily run the model locally.
+![Open Eraser desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel](docs/assets/open-eraser-demo.png)
 
-The application is named **Open Eraser**. Its source repository is [Nikhiladiga/chalkline](https://github.com/Nikhiladiga/chalkline).
+*AWS serverless demo: API Gateway invokes Lambda, which connects to DynamoDB and S3. The icon palette, canvas and AI panel share one workspace.*
 
-## Contents
+Open Eraser is a desktop application for creating and editing architecture diagrams. Describe a system, choose a code folder, or draw directly with service icons and connectors. Refine the result visually or in JSON, then export it for documentation and presentations.
 
-- [Features](#features)
-- [Getting started](#getting-started)
-- [Choose an AI provider](#choose-an-ai-provider)
-- [Generate and update diagrams](#generate-and-update-diagrams)
-- [Architecture from a code folder](#architecture-from-a-code-folder)
-- [Edit visually or in code](#edit-visually-or-in-code)
-- [Save and export](#save-and-export)
-- [Privacy and data handling](#privacy-and-data-handling)
-- [Development](#development)
-- [Desktop builds and distribution](#desktop-builds-and-distribution)
-- [Project documentation](#project-documentation)
-- [License and credits](#license-and-credits)
+Use an installed Codex or Claude Code CLI with its existing login, a local model through LM Studio, or an OpenAI-compatible API. You can also draw manually without configuring AI.
+
+**Status:** version 0.1.0, macOS beta. Run from source today. Public downloads and Homebrew distribution are in preparation; Windows and Linux packaging targets are configured but still need native release testing. The current app uses Electron.
 
 ## Features
 
-- Generate architecture diagrams from a description, then make further changes with AI.
-- Scan a local code folder to map requests, services, database operations, search, indexing and background work.
-- Discover supported installed harnesses and choose between Codex and Claude Code, with an executable-path override when needed.
-- Search **3,856 icons**, filter by category, and drag service icons directly onto the canvas.
-- Create connections by dragging between **eight ports per icon**: four corners and four edge midpoints.
-- Move and resize elements, select multiple elements, duplicate or delete them, edit captions, and move elements into or out of groups.
-- Switch the left sidebar between the icon palette and a JSON editor with schema-aware completion and validation.
-- Arrange diagrams with auto-layout, navigate with pan/zoom and Fit, and switch between light and dark themes.
-- Undo and redo diagram changes, recover unsaved work, and save diagrams as editable JSON files.
-- Export PNG at 1× or 2×, SVG, HTML and measured JSON, or copy a PNG to the clipboard. PNG export supports a transparent background.
+- Generate diagrams from natural-language descriptions and refine them with follow-up instructions.
+- Turn a code folder into a runtime architecture overview, with source references and scan coverage details.
+- Choose a supported installed harness, refresh available models, or connect a local/API provider.
+- Search **3,856 icons** across AWS, Azure, Google Cloud and general service/brand categories; drag them onto the canvas.
+- Connect icons through **eight connection ports**, with a live preview and target snapping.
+- Move, resize, select, duplicate and delete elements; edit captions and drag elements into or out of groups.
+- Switch between the icon palette and a JSON editor with schema-aware completion and validation.
+- Use auto-layout, pan, zoom, Fit, and light or dark themes.
+- Keep control of AI edits with position preservation, cancellation and one-step Undo.
+- Save editable JSON diagrams and recover unsaved work, including unfinished code drafts.
+- Export **PNG, SVG, HTML and measured JSON**; copy PNG to the clipboard. PNG supports 1×/2× resolution and transparent backgrounds.
+
+## Supported harnesses and providers
+
+| Integration | Authentication / requirements | Model selection |
+| --- | --- | --- |
+| **Codex CLI** | Installed CLI with a working saved login; no app API key required. | Dynamic catalog queried from the installed CLI, plus its built-in default. |
+| **Claude Code CLI** | Installed CLI with a working saved login; no app API key required. | Supported aliases such as default, Sonnet, Opus and Haiku. |
+| **LM Studio** | A loaded model and a running local API server. | Models returned by the configured server. |
+| **OpenAI-compatible API** | Compatible base URL and API key when required. | Models returned by the endpoint, or a manually entered model ID. |
+
+In **Settings**, choose **Local CLI (existing login)** and select an installed harness. Codex and Claude Code are the two supported harnesses today. Enter an executable path if automatic discovery cannot find your installation. Other installed CLIs are not yet integrated.
+
+For LM Studio, the default server URL is `http://127.0.0.1:1234/v1`. For API providers, set the base URL and credentials in Settings. Select a model in the AI panel and use **Refresh** to reload its list.
+
+An installed CLI uses its provider's model service; it does not necessarily run AI locally. CLI generation disables filesystem tools, plugins, MCP and project rules. Codex requires support for `--ignore-user-config` and `--ignore-rules`; personal model/provider configuration is not applied to generation.
 
 ## Getting started
 
-The current version is **0.1.0**. Run it from source while public desktop downloads and Homebrew distribution are being prepared. The macOS build requires **macOS 13 or later**. Windows and Linux packaging targets are configured, but release validation is still pending.
+### Run from source
 
-Install **Node.js 22.18 or later** and **pnpm**, then run:
+Requirements: **Node.js 22.18+** and **pnpm**. The current macOS build requires **macOS 13+**. An AI provider is optional for manual editing.
 
 ```sh
 git clone https://github.com/Nikhiladiga/chalkline.git
@@ -51,138 +68,69 @@ pnpm install
 pnpm dev
 ```
 
-Installation downloads the Electron runtime. The app opens in development mode with hot reload.
+Installation downloads Electron. `pnpm dev` opens the application with hot reload. The repository retains the name `chalkline`; the application is named **Open Eraser**.
 
-For your first diagram:
+### Create your first diagram
 
-1. Open **Settings** and configure an AI provider, or switch to **Icons** to draw manually.
-2. Open **AI**, select **New**, and choose a description or a code folder as the source.
-3. Select a model and generate the diagram.
-4. Adjust icons, captions, positions and connections on the canvas.
-5. Save the JSON diagram and choose an export format from **Export**.
+1. Configure your provider in **Settings**.
+2. Open **AI → New**, choose **Description**, and select a model.
+3. Enter a prompt and choose **Generate**.
+4. Refine the result with **Edit**, drag icons onto the canvas, or switch to **Code**.
+5. Save with `⌘/Ctrl+S` and export from the toolbar.
 
-## Choose an AI provider
+Try the demo shown above:
 
-| Provider | What you need | Setup in Open Eraser |
-| --- | --- | --- |
-| Codex CLI | An installed CLI with a working saved login | Choose **Local CLI (existing login)**, select **Codex**, and use the discovered path or enter one. |
-| Claude Code CLI | An installed CLI with a working saved login | Choose **Local CLI (existing login)**, select **Claude Code**, and use the discovered path or enter one. |
-| LM Studio | A loaded model and a running local API server | Choose **LM Studio** and set the server URL, normally `http://127.0.0.1:1234/v1`. |
-| OpenAI / compatible API | A compatible endpoint and its required credentials | Choose the OpenAI provider, set the base URL, and save an API key if required. |
+> Create an AWS serverless API diagram. A User sends HTTPS requests to API Gateway, which invokes Lambda. Lambda reads and writes DynamoDB records and stores files in S3. Arrange the request flow left to right, with DynamoDB and S3 on separate branches. Use AWS service icons, clear labels and generous spacing.
 
-The harness dropdown discovers **Codex and Claude Code**, the currently supported CLI integrations. Installing a different harness does not automatically add an integration.
+### Generate from a code folder
 
-The AI panel has a model dropdown and **Refresh** button. Codex models are queried from the installed CLI's model catalog; API model lists come from the configured endpoint. Claude Code offers its supported model aliases. You can also enter a model ID in Settings.
+Choose **AI → New → Source → Code folder**, select a project or service directory, review scan coverage, and Generate. An optional focus such as `Trace API requests, database writes and indexing` helps narrow the overview.
 
-CLI generation uses the harness's saved login without an app API key. It runs with filesystem tools, plugins, MCP and project rules disabled. Codex needs a version that supports `--ignore-user-config` and `--ignore-rules`. The app uses the selected model, or the CLI's built-in default; personal Codex model/provider configuration is not applied to generation.
+The scanner reads source, manifests and configuration without executing the project. It prioritizes runtime evidence and groups route handlers, ORM models and SDK helpers into their owning service. The default is a runtime diagram; ask explicitly for an import/dependency graph when needed.
 
-Settings also let you set the model context size and repair-attempt limit. Generated JSON is validated, and the app can ask the model to repair invalid output before applying it. **Stop** cancels generation.
+Use **Rescan** to refresh evidence or **Edit → Apply** to update the diagram after code changes. Existing positions are preserved by default. Select the source folder again after reopening the app. There is no background watcher today.
 
-## Generate and update diagrams
+Large repositories use bounded excerpts, so scan coverage and model-authored source references should be reviewed. See the [code-folder guide](docs/code-folder-architecture.md) for limits and exclusions.
 
-For a new diagram, describe the components and how they interact. For example:
+### Draw and refine manually
 
-> A client calls an Express API. The API stores books in PostgreSQL and searches a Typesense index. A scheduled job synchronizes changed books into Typesense.
+In **Icons**, search or filter the catalog and drag an icon onto the canvas. Drag between connection ports to link services. Use **Details** to edit captions and properties, or **Code** for direct JSON editing with `Ctrl+Space` completion. Invalid code drafts must be fixed or discarded before saving.
 
-Use **Edit** to update the current diagram:
+Use **Auto-layout** to reorganize the diagram, **Space + drag** to pan, `⌘/Ctrl + scroll` to zoom, and **Fit** to frame it. AI edits preserve positions unless you enable **Allow AI to move existing elements**. Generation can be cancelled with **Stop**, and accepted changes can be undone.
 
-> Add a Redis cache between the API and PostgreSQL. Keep the search flow unchanged.
-
-AI edits preserve existing element positions by default. Enable **Allow AI to move existing elements** when the model should rearrange them. Each accepted AI change is one Undo step. If you edit the canvas while generation is running, the app asks before applying the result over your newer work.
-
-Auto-layout can reorganize the whole diagram. Review generated components and relationships against the system you are documenting; valid JSON does not guarantee that the architecture is correct.
-
-## Architecture from a code folder
-
-1. In **AI diagram**, select **Source → Code folder**.
-2. Choose the project or service directory.
-3. Review the eligible-file count, excerpt coverage and scan details.
-4. Optionally add a focus, such as `Trace search requests and database writes`.
-5. Use **New → Generate** for a fresh architecture overview.
-
-The scanner reads source files, manifests, documentation and deployment configuration without executing the project. It keeps line-numbered evidence, includes short files completely when they fit, and prioritizes runtime operations over import headers in longer files.
-
-The default diagram shows what the application does. Route handlers, ORM models and SDK helpers are grouped into their owning service; edges describe requests, reads/writes, search, indexing, sync and messages. Ask explicitly for an import/dependency graph if that is the view you need. Generated diagrams include a compact source note with references and coverage limitations.
-
-After changing the code, **Rescan** refreshes the evidence. **Edit → Apply** scans again and updates the diagram while preserving existing positions by default. Folder selection lasts for the app session, so choose the folder again after reopening the app. There is no background file watcher.
-
-Large repositories are represented by bounded excerpts, not a complete analysis of every execution path. Even when all eligible files were read, some implementation details may be omitted. Choose a narrower service folder or increase the configured context size when coverage is too limited.
-
-See [code-folder generation](docs/code-folder-architecture.md) for exact limits, exclusions and provider data handling.
-
-## Edit visually or in code
-
-Use **Icons** in the left sidebar to search and browse the catalog. Drag an icon onto the canvas, then use **Details** to adjust its caption and properties. Hover over an icon to access its connection ports and drag a connector to another icon. Dragging an element out of a group changes its membership.
-
-Switch to **Code** to edit the same diagram as JSON. The editor offers property, tag, icon and ID suggestions with `Ctrl+Space`. Valid edits update the canvas; invalid drafts remain editable and must be fixed or discarded before saving.
-
-Diagrams use the Eraser Diagrams format. A small example:
-
-```json
-{
-  "entities": [
-    {
-      "tag": "Icon",
-      "id": "api",
-      "x": 80,
-      "y": 80,
-      "icon": "server",
-      "texts": [{ "text": "API" }]
-    },
-    {
-      "tag": "Icon",
-      "id": "database",
-      "x": 320,
-      "y": 80,
-      "icon": "postgres",
-      "texts": [{ "text": "PostgreSQL" }]
-    }
-  ],
-  "connections": [{ "from": "api", "to": "database", "label": "SQL" }]
-}
-```
-
-Groups, shapes, textboxes and other supported diagram entities can be generated by AI or edited through the code pane.
-
-| Action | Shortcut / gesture |
-| --- | --- |
-| New / Open / Save | `⌘/Ctrl+N`, `⌘/Ctrl+O`, `⌘/Ctrl+S` |
-| Save As | `⌘/Ctrl+Shift+S` |
-| Undo / Redo | `⌘/Ctrl+Z`, `⌘/Ctrl+Shift+Z` |
-| Duplicate selection | `⌘/Ctrl+D` |
-| Delete selection | `Delete` or `Backspace` |
-| Move selection | Arrow keys; hold `Shift` for larger steps |
-| Pan | `Space` + drag |
-| Zoom | `⌘/Ctrl` + scroll |
-| Fit diagram | **Fit** or `Shift+1` |
-| Edit a caption | Double-click the text |
-| Export PNG / SVG | `⌘/Ctrl+E`, `⌘/Ctrl+Shift+E` |
-
-Canvas shortcuts apply when an input or the code editor does not have focus.
-
-## Save and export
-
-**File → Save** writes an editable JSON diagram. Use **File → Open** to reopen it and **Save As** to create another copy. Unsaved changes trigger close confirmation, and crash recovery includes unfinished code drafts.
-
-| Format | Use |
-| --- | --- |
-| PNG | Documentation, slides and sharing; 1×/2× resolution and optional transparency. |
-| SVG | Scalable export for documentation and graphics workflows. |
-| HTML | A rendered diagram page to open in a browser. |
-| Measured JSON | The diagram with measured layout information. |
-| PNG clipboard | Paste an image into another application. |
-
-Saved diagram files contain diagram data. They do not embed API keys, settings, the selected source folder or the full scan context. Model-generated captions and source notes can still contain details derived from your project.
+Save diagrams as editable JSON. PNG is available at 1×/2× with optional transparency, plus SVG, HTML, measured JSON and PNG clipboard export. Current SVG exports use HTML/`foreignObject`; applications that do not support it may not display them correctly.
 
 ## Privacy and data handling
 
-Manual edits and file saves stay on your computer. Choosing or rescanning a folder does not call an AI provider; **Generate** or **Apply** sends selected evidence through the configured provider. For folder generation, this includes bounded source excerpts and a file inventory. AI edits also send the current diagram.
+Diagram files and manual edits stay on your computer. Choosing or rescanning a folder does not call AI. **Generate** and **Apply** send prompts, diagram data and selected source excerpts to your configured provider.
 
-The scanner respects root and nested `.gitignore` rules. It skips dependency/build/VCS directories, symlinks, binaries, oversized files, environment/credential files and agent instruction files. It redacts common literal secrets before selecting excerpts. Redaction is best effort: review your source before submitting confidential code.
+The scanner respects nested `.gitignore` rules and skips dependencies, build output, symlinks, binaries, oversized files, credential files and agent instructions. Common literal secrets are redacted, but detection is best effort. Review confidential code before sending it to a provider. Generated diagrams can contain project details derived from that evidence.
 
-The app stores API keys using Electron's `safeStorage`; the renderer does not receive saved keys. Settings, recovery data and cached icons use the legacy **`diagrammer`** application-data directory.
+API keys are stored with Electron's `safeStorage` and are not exposed to the renderer. Saved diagrams do not embed keys, settings, source-folder access or the full scan context. Settings, recovery data and cached icons use the legacy `diagrammer` application-data directory.
 
-Icons are loaded from a local cache or a hosted icon source. Uncached icons may require network access and can show placeholders if unavailable. A local AI endpoint plus cached icons can avoid hosted AI and icon requests; using a cloud-backed CLI still sends generation data to its provider.
+Uncached icons may require a hosted icon request. A local model endpoint and cached icons can avoid hosted AI and icon requests. Review AI-generated architecture against the source; valid JSON alone does not establish correctness.
+
+## Roadmap
+
+These are proposed priorities, not features available in the current release. Scope and timing may change.
+
+### Near term
+
+- [ ] Publish signed/notarized macOS releases and a Homebrew cask.
+- [ ] Validate installers, harness execution and exports on Windows, Linux and Intel macOS.
+- [ ] Improve code-folder architecture quality with larger real-project evaluations and clearer source evidence.
+- [ ] Add starter diagrams for common cloud, API, database, search and queue architectures.
+
+### Under consideration
+
+- [ ] Reduce application size through a Tauri port, after proving native exports and rendering on each platform.
+- [ ] Support additional CLI harnesses through the existing provider workflow.
+- [ ] Preview code-driven diagram changes before applying them, with links from components to source evidence.
+- [ ] Offer optional folder watching and refresh prompts when source changes.
+- [ ] Add alignment guides, grid snapping and more control over connector routing.
+- [ ] Produce native vector SVG exports for graphics tools that do not support `foreignObject`.
+
+Suggest features or report problems through [GitHub issues](https://github.com/Nikhiladiga/chalkline/issues). The [Tauri assessment](docs/tauri-feasibility.md) explains the migration work already investigated.
 
 ## Development
 
@@ -196,20 +144,9 @@ Icons are loaded from a local cache or a hosted icon source. Uncached icons may 
 | `pnpm test:e2e` | Build and run the Playwright Electron suite. |
 | `pnpm eval:s3` | Run the S3 diagram evaluation. |
 
-Live harness acceptance tests are opt-in and use the selected CLI's login and quota. See [code-folder generation](docs/code-folder-architecture.md) for the synthetic Codex test and [the import-clutter regression](docs/code-folder-imports-fix.md) for the local Typesense sample test. Running a live test against your own project sends its selected excerpts to the provider.
+Live harness acceptance tests are opt-in and use the selected CLI's login and quota. See [code-folder generation](docs/code-folder-architecture.md) and [the runtime-evidence regression](docs/code-folder-imports-fix.md). Tests against your own code send selected excerpts to the provider.
 
 The app uses Electron, React, TypeScript, Zustand, CodeMirror, ELK and the Eraser Diagrams packages.
-
-```text
-src/main/         Native files, settings, icons, harnesses and exports
-src/preload/      Typed bridge between the renderer and main process
-src/shared/       Shared IPC validation and project types
-src/renderer/     Editor UI, diagram engine, AI pipeline and layout
-e2e/              Desktop workflow and opt-in harness tests
-icons/            Icon names and aliases
-build/            Application icon and packaging resources
-docs/             Feature guides, release preparation and assessments
-```
 
 ## Desktop builds and distribution
 
@@ -225,22 +162,19 @@ Artifacts are written to `dist/`. A local ad hoc macOS build is not a notarized 
 
 No public binary release or Homebrew install command is available yet. Follow [Homebrew release preparation](docs/homebrew-release.md) for signing, notarization, release archives, checksums and a personal tap.
 
-The current app uses **Electron**. A **Tauri** port is feasible but has not been implemented. The native WebKit probe verified renderer compatibility on this Mac, not all supported platforms. Native backend migration and PNG export still need proof. See the [Tauri assessment](docs/tauri-feasibility.md).
-
 ## Project documentation
 
 - [Code-folder architecture generation](docs/code-folder-architecture.md)
-- [Runtime evidence and import-clutter fix](docs/code-folder-imports-fix.md)
+- [Runtime evidence and architecture quality](docs/code-folder-imports-fix.md)
 - [Production readiness review](docs/production-readiness-2026-10-07.md)
 - [Homebrew and macOS release preparation](docs/homebrew-release.md)
 - [Tauri feasibility](docs/tauri-feasibility.md)
-- [Repository setup and native WebKit results](docs/repository-and-tauri-check.md)
 - [Product and integration specification](PLAN.md)
 - [Design guidance](DESIGN.md)
 - [Implementation decisions](DECISIONS.md)
 
 ## License and credits
 
-The application does not yet have a project-level distribution license. Public source availability alone does not grant an open-source license.
+MIT
 
 The rendering engine uses the MIT-licensed **Eraser Diagrams** packages. The [upstream license](third_party/eraser-diagrams/LICENSE) and font notices are included in packaged resources. Service icons and logos remain their respective owners' marks.
