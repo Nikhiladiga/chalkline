@@ -20,7 +20,9 @@ import { Canvas } from './ui/Canvas';
 import { DetailsPane } from './ui/DetailsPane';
 import { IconPicker } from './ui/IconPicker';
 import { LeftSidebar } from './ui/LeftSidebar';
+import { togglePane } from './ui/PaneToggle';
 import { Settings } from './ui/Settings';
+import { StatusBar } from './ui/StatusBar';
 import { Toolbar } from './ui/Toolbar';
 import { requestFit, useUi } from './ui/uiStore';
 
@@ -61,6 +63,11 @@ function useShortcuts(): void {
       else if (mod && k === 'd') duplicateSelection();
       else if (mod && k === 'a')
         store.select({ entities: store.doc.entities.map((x) => x.id), connections: [] });
+      else if (mod && e.key === ',') useUi.getState().set({ settingsOpen: true });
+      else if (!mod && e.key === '[') togglePane('left');
+      else if (!mod && e.key === ']') togglePane('right');
+      else if (!mod && e.key === '?')
+        document.querySelector<HTMLButtonElement>('[data-testid="shortcuts-menu"]')?.click();
       else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) deleteSelection();
       else if (e.key === 'Escape') store.select({ entities: [], connections: [] });
       else if (e.key === 'ArrowLeft') nudge(-step, 0);
@@ -137,11 +144,7 @@ export function App() {
   useMenuAndFiles();
   const showCode = useUi((s) => s.showCode);
   const showAi = useUi((s) => s.showAi);
-  const r = useUi((s) => s.render);
-  const errors = useUi((s) => s.errors);
-  const warnings = useUi((s) => s.warnings);
   const toastMsg = useUi((s) => s.toast);
-  const count = useDoc((s) => s.doc.entities.length);
   const theme = useUi((s) => s.theme);
 
   return (
@@ -157,18 +160,7 @@ export function App() {
           </div>
         )}
       </main>
-      <footer className="status">
-        <span className={errors.length ? 'bad' : 'ok'}>
-          {errors.length ? `${errors.length} error${errors.length > 1 ? 's' : ''}` : 'Valid'}
-          {warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : ''}
-        </span>
-        <span>
-          {count} element{count === 1 ? '' : 's'}
-        </span>
-        {r && <span>Rendered in {r.ms} ms</span>}
-        <span style={{ flex: 1 }} />
-        <span>Drag to move · Space-drag to pan · ⌘-scroll to zoom · double-click to edit text</span>
-      </footer>
+      <StatusBar />
       <Settings />
       <IconPicker />
     </div>

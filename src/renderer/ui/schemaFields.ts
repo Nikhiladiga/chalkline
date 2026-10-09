@@ -48,3 +48,14 @@ export function fieldsFor(schema: any): Field[] {
   }
   return out;
 }
+
+/** Sentence-case label for a schema key: "fontSize" → "Font size", "iconURL" → "Icon URL". */
+export function labelOf(key: string): string {
+  const text = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 1 && w === w.toUpperCase() ? w : w.toLowerCase()))
+    .join(' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}

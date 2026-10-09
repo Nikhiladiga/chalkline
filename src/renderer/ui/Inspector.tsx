@@ -4,7 +4,7 @@ import { useDoc } from '../doc/store';
 import { tagSchema } from '../engine/engine';
 import { deleteSelection } from './actions';
 import { IconTrash } from './icons';
-import { type Field, fieldsFor } from './schemaFields';
+import { type Field, fieldsFor, labelOf } from './schemaFields';
 import { useUi } from './uiStore';
 
 const TOKENS: [string, string][] = [
@@ -60,7 +60,14 @@ function FieldInput({
       <div className="row">
         {typeof value === 'string' && (
           <span className="icon-thumb">
-            <img src={`icons://i/${value}.svg`} alt="" />
+            <img
+              key={value}
+              src={`icons://i/${value}.svg`}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.hidden = true; // missing icon: leave the neutral tile
+              }}
+            />
           </span>
         )}
         <button
@@ -224,12 +231,14 @@ export function Inspector() {
           />
         </div>
       )}
-      {fields.map((f) => (
-        <div className="field" key={f.key}>
-          <span>{f.key}</span>
-          <FieldInput field={f} value={target[f.key]} onChange={(v) => update(f.key, v)} />
-        </div>
-      ))}
+      <div className="field-grid">
+        {fields.map((f) => (
+          <div className={`field${f.kind === 'number' ? '' : ' wide'}`} key={f.key}>
+            <span>{labelOf(f.key)}</span>
+            <FieldInput field={f} value={target[f.key]} onChange={(v) => update(f.key, v)} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

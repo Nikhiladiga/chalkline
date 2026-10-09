@@ -191,6 +191,7 @@ export function Toolbar() {
         type="button"
         className="btn icon"
         data-tip="Settings"
+        data-kbd={`${mod},`}
         aria-label="Settings"
         onClick={() => set({ settingsOpen: true })}
       >

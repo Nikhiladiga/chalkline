@@ -1116,6 +1116,15 @@ body {
   color: var(--ink-subtle);
   font: var(--fw-medium) var(--fs-sm) / var(--lh-sm) var(--ui);
 }
+/* Numbers pair up two per row (width/height); everything else spans the row. */
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--sp-3);
+}
+.field-grid .field.wide {
+  grid-column: 1 / -1;
+}
 .row {
   display: flex;
   align-items: center;
@@ -1323,12 +1332,28 @@ body {
 .status {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 12px;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-2) 0 var(--sp-3);
   border-top: 1px solid var(--hairline);
   background: var(--canvas);
   color: var(--ink-subtle);
-  font-size: 12px;
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  font-variant-numeric: tabular-nums;
+}
+.status .btn {
+  height: 22px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+}
+.status .menu {
+  top: auto;
+  bottom: calc(100% + var(--sp-1));
+  transform-origin: bottom right;
+}
+.status .menu-item {
+  white-space: nowrap;
+  gap: var(--sp-4);
 }
 .status .ok::before,
 .status .bad::before {
@@ -1343,14 +1368,6 @@ body {
 .status .bad::before {
   background: var(--danger);
 }
-.status button {
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
 /* ---------- modals (native <dialog>; tokens inherit through the DOM even in the top layer) ---------- */
 .modal {
   width: min(560px, calc(100vw - 48px));

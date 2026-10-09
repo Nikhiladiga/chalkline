@@ -251,3 +251,68 @@ test('an invalid AI draft opening the collapsed code pane keeps the diagram stil
     llm.close();
   }
 });
+
+test('keyboard: [ and ] toggle panes, ? lists shortcuts, mod+, opens Settings', async () => {
+  const page = await open();
+  await page.locator('.canvas').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('[');
+  await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(0);
+  await page.keyboard.press(']');
+  await expect(page.locator('.pane.right .pane-body:visible')).toHaveCount(0);
+  await page.keyboard.press('[');
+  await page.keyboard.press(']');
+  await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(1);
+  await expect(page.locator('.pane.right .pane-body:visible')).toHaveCount(1);
+  await page.keyboard.press('?');
+  const menu = page.getByRole('menu', { name: 'Shortcuts' });
+  await expect(menu).toBeVisible();
+  await expect(menu).toContainText('Toggle the left pane');
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await page.keyboard.press(`${mod}+Comma`);
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});
+
+// Review Focus 1
+test('typing shortcut keys into text fields types them', async () => {
+  const page = await open();
+  const prompt = page.getByTestId('ai-prompt');
+  await prompt.click();
+  await page.keyboard.type('a[b]?c,');
+  await expect(prompt).toHaveValue('a[b]?c,');
+  await page.locator('.hit[data-id="api"]').click();
+  const text = page.getByTestId('inspector').locator('textarea').first();
+  await text.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('[]?');
+  await expect(text).toHaveValue(/\[\]\?$/);
+  await page.getByRole('searchbox', { name: 'Search icons' }).click();
+  await page.keyboard.type('[?');
+  await expect(page.getByRole('searchbox', { name: 'Search icons' })).toHaveValue('[?');
+  await page.getByRole('tab', { name: 'Code', exact: true }).click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('[?');
+  await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(1);
+  await expect(page.locator('.pane.right .pane-body:visible')).toHaveCount(1);
+  await expect(page.getByRole('menu', { name: 'Shortcuts' })).toBeHidden();
+});
+
+test('inspector labels read as sentences and a missing icon shows a neutral tile', async () => {
+  const page = await open();
+  await page.evaluate(() => {
+    const dg = (window as any).__dg;
+    dg.actions.loadText(
+      JSON.stringify({
+        entities: [{ tag: 'Icon', id: 'n', x: 0, y: 0, icon: 'no-such-icon-anywhere' }],
+        connections: [],
+      }),
+      null,
+    );
+    dg.doc.getState().select({ entities: ['n'], connections: [] });
+  });
+  const inspector = page.getByTestId('inspector');
+  await expect(inspector.locator('.field > span').first()).toBeVisible();
+  const labels = await inspector.locator('.field > span').allTextContents();
+  expect(labels.filter((l) => /^[a-z]|[a-z][A-Z]/.test(l))).toEqual([]);
+  await expect(inspector.locator('.icon-thumb img')).toBeHidden();
+});

@@ -98,6 +98,10 @@ test('capture redesign screenshots', async () => {
     await page.evaluate(() => (window as any).__dg.ui.getState().set({ toast: 'Saved diagram.json' }));
     await shot('11-toast');
     await page.evaluate(() => (window as any).__dg.ui.getState().set({ toast: null }));
+    await page.locator('.canvas').click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press('?');
+    await shot('14-shortcuts');
+    await page.keyboard.press('Escape');
     // Light chrome is new in the redesign (decision D1).
     await page.getByTestId('theme-toggle').click();
     await page.locator('.hit[data-id="lambda"]').click();

@@ -17,6 +17,7 @@ export function PaneToggle({ side, open }: { side: 'left' | 'right'; open: boole
       type="button"
       className={open ? 'btn icon' : 'rail'}
       data-tip={open ? label : undefined}
+      data-kbd={open ? (side === 'left' ? '[' : ']') : undefined}
       aria-label={label}
       data-testid={`toggle-${side}`}
       onClick={() => togglePane(side)}
