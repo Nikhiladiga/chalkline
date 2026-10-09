@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DEFAULT_URLS, type Provider, type PublicSettings } from '../../shared/ipc';
 import { ipcMessage } from './actions';
-import { IconClose } from './icons';
+import { Modal } from './Modal';
 import { useUi } from './uiStore';
 
 const PROVIDERS: [Provider, string][] = [
@@ -28,7 +28,7 @@ export function Settings() {
         .catch((e) => setStatus(ipcMessage(e)));
     }
   }, [open]);
-  if (!open || !s) return null;
+  if (!s) return null; // first open: wait for settings, then the dialog mounts already open
   const close = () => useUi.getState().set({ settingsOpen: false });
   const patch = (p: Partial<PublicSettings>) => setS({ ...s, ...p });
   const cli = s.provider === 'claude-code' || s.provider === 'codex';
@@ -58,19 +58,40 @@ export function Settings() {
   };
 
   return (
-    <div className="scrim" onPointerDown={close}>
-      <div className="modal" role="dialog" aria-label="Settings" onPointerDown={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          Settings
-          <button type="button" className="btn icon" aria-label="Close" onClick={close}>
-            <IconClose />
+    <Modal
+      open={open}
+      title="Settings"
+      onClose={close}
+      footer={
+        <>
+          <button type="button" className="btn secondary" onClick={test}>
+            Test connection
           </button>
-        </div>
-        <div className="modal-body">
+          <button
+            type="button"
+            className="btn primary"
+            onClick={async () => {
+              try {
+                await persist();
+                close();
+              } catch (e) {
+                setStatus(ipcMessage(e));
+              }
+            }}
+          >
+            Save settings
+          </button>
+        </>
+      }
+    >
+      <div className="modal-body">
+        <section className="modal-group">
+          <h3>Provider</h3>
           <label className="field">
             <span>AI provider</span>
             <select
               className="select"
+              data-autofocus
               value={cli ? 'cli' : s.provider}
               onChange={(e) => {
                 const provider =
@@ -145,6 +166,22 @@ export function Settings() {
               />
             </label>
           )}
+          {s.provider === 'openai' && (
+            <label className="field">
+              <span>API key {s.hasKey && '(saved — leave empty to keep it)'}</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="off"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder={s.hasKey ? '••••••••' : 'Paste your key'}
+              />
+            </label>
+          )}
+        </section>
+        <section className="modal-group">
+          <h3>Generation</h3>
           <label className="field">
             <span>Model</span>
             <input
@@ -160,33 +197,22 @@ export function Settings() {
               onChange={(e) => patch({ model: e.target.value })}
             />
           </label>
-          {s.provider === 'openai' && (
-            <label className="field">
-              <span>API key {s.hasKey && '(saved — leave empty to keep it)'}</span>
-              <input
-                className="input"
-                type="password"
-                autoComplete="off"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                placeholder={s.hasKey ? '••••••••' : 'Paste your key'}
-              />
-            </label>
-          )}
           <div className="row">
-            <label className="field" style={{ flex: 1, display: cli ? 'none' : undefined }}>
-              <span>Temperature</span>
-              <input
-                className="input"
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                value={s.temperature}
-                onChange={(e) => patch({ temperature: Number(e.target.value) })}
-              />
-            </label>
-            <label className="field" style={{ flex: 1 }}>
+            {!cli && (
+              <label className="field grow">
+                <span>Temperature</span>
+                <input
+                  className="input"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                  value={s.temperature}
+                  onChange={(e) => patch({ temperature: Number(e.target.value) })}
+                />
+              </label>
+            )}
+            <label className="field grow">
               <span>Repair attempts</span>
               <input
                 className="input"
@@ -198,6 +224,9 @@ export function Settings() {
               />
             </label>
           </div>
+        </section>
+        <section className="modal-group">
+          <h3>Icons</h3>
           <label className="check">
             <input
               type="checkbox"
@@ -206,28 +235,9 @@ export function Settings() {
             />
             Download missing icons from Eraser's public icon library (cached on disk)
           </label>
-          {status && <div className="note">{status}</div>}
-        </div>
-        <div className="modal-foot">
-          <button type="button" className="btn secondary" onClick={test}>
-            Test connection
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            onClick={async () => {
-              try {
-                await persist();
-                close();
-              } catch (e) {
-                setStatus(ipcMessage(e));
-              }
-            }}
-          >
-            Save settings
-          </button>
-        </div>
+        </section>
+        {status && <div className="note">{status}</div>}
       </div>
-    </div>
+    </Modal>
   );
 }

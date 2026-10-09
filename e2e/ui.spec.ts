@@ -81,3 +81,56 @@ test('controls: disabled primary is solid, tabs slide, zoom resets to 100%', asy
   await page.getByRole('button', { name: 'Reset zoom to 100%' }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__dg.ui.getState().zoom)).toBe(1);
 });
+
+test('Settings is a native modal: focus moves in, Escape closes it, focus returns', async () => {
+  const page = await open();
+  const button = page.getByRole('button', { name: 'Settings', exact: true });
+  await button.click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel('AI provider')).toBeFocused();
+  expect(await dialog.evaluate((d) => d.matches('dialog:modal'))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(button).toBeFocused();
+  expect(await page.evaluate(() => (window as any).__dg.ui.getState().settingsOpen)).toBe(false);
+});
+
+test('export menu: focus moves in, arrows rove and wrap, Escape returns focus', async () => {
+  const page = await open();
+  const trigger = page.getByTestId('export-menu');
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const menu = page.getByRole('menu', { name: 'Export' });
+  await expect(menu).toBeVisible();
+  await expect(page.getByTestId('export-png-2x')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitem', { name: 'PNG (1x)' })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Transparent background' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('export-png-2x')).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Transparent background' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+// Review Focus 5
+test('a long file name keeps the unsaved dot visible', async () => {
+  const page = await open();
+  await page.evaluate(() =>
+    (window as any).__dg.doc.setState({
+      filePath: `/tmp/${'quarterly-architecture-review-'.repeat(8)}.json`,
+      dirty: true,
+    }),
+  );
+  const name = page.locator('.file-name');
+  const dot = name.locator('.dirty-dot');
+  await expect(dot).toBeVisible();
+  await expect(name).toContainText('edited');
+  const d = (await dot.boundingBox())!;
+  const f = (await name.boundingBox())!;
+  expect(d.x + d.width).toBeLessThanOrEqual(f.x + f.width + 0.5);
+});

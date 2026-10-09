@@ -199,16 +199,36 @@ body {
   height: 22px;
 }
 .file-name {
-  color: var(--ink-subtle);
-  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
   max-width: 260px;
+  margin-left: 6px;
+  color: var(--ink-subtle);
+  -webkit-app-region: drag;
+}
+/* Only the name truncates, so the unsaved dot is always visible. */
+.file-title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  -webkit-app-region: drag;
 }
-.file-name .dot {
-  color: var(--ink-muted);
+.dirty-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-subtle);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .spacer {
   flex: 1;
@@ -333,56 +353,129 @@ body {
 .menu-wrap {
   position: relative;
 }
+.menu-wrap > .btn > svg:last-child {
+  width: 12px;
+  height: 12px;
+  color: var(--ink-subtle);
+}
 .menu {
   position: absolute;
-  top: 36px;
+  top: calc(100% + var(--sp-1));
   right: 0;
   z-index: 50;
+  display: grid;
   min-width: 220px;
-  padding: 4px;
-  background: var(--s3);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: var(--sp-1);
+  border-radius: var(--r-lg);
+  background: var(--s4);
+  box-shadow: var(--e2);
+  transform-origin: top right;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    display var(--dur-fast) allow-discrete;
 }
-.menu.left {
-  left: 0;
-  right: auto;
+.menu[hidden] {
+  display: none;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  transition-duration: var(--dur-instant);
+  transition-timing-function: var(--ease-in);
+}
+@starting-style {
+  .menu:not([hidden]) {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
 }
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   width: 100%;
-  height: 30px;
-  padding: 0 10px;
+  height: var(--control-h-sm);
+  padding: 0 var(--sp-2);
   border: 0;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink-muted);
-  font: 400 13px / 1 var(--ui);
+  font: var(--fw-regular) var(--fs-md) / 1 var(--ui);
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color var(--dur-instant) linear,
+    color var(--dur-instant) linear;
 }
-.menu-item:hover {
-  background: var(--s4);
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--s3);
   color: var(--ink);
+}
+.menu-item:focus-visible {
+  outline-offset: -2px;
+}
+.menu-item.static {
+  cursor: default;
 }
 .menu-sep {
   height: 1px;
-  margin: 4px 6px;
+  margin: var(--sp-1) 6px;
+  border: 0;
   background: var(--hairline);
 }
 .menu-check {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--sp-2);
+  height: var(--control-h-sm);
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-sm);
   color: var(--ink-subtle);
+}
+.menu-check:has(:focus-visible) {
+  background: var(--s3);
+  color: var(--ink);
+}
+/* CSS tooltips: [data-tip] text plus optional [data-kbd]; 400 ms open delay. */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 60;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--r-sm);
+  background: var(--s4);
+  box-shadow: var(--e2);
+  color: var(--ink);
+  font: var(--fw-medium) var(--fs-xs) / var(--lh-xs) var(--ui);
+  white-space: pre;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+[data-kbd]::after {
+  content: attr(data-tip) "   " attr(data-kbd);
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 400ms;
+}
+.toolbar > [data-tip]:last-child::after,
+.pane-head [data-tip]::after {
+  left: auto;
+  right: 0;
+  transform: none;
 }
 
 /* ---------- main grid ---------- */
 .workspace {
+  position: relative;
   display: grid;
   min-height: 0;
   grid-template-columns: var(--code-w, 360px) 1fr var(--ai-w, 340px);
@@ -1163,24 +1256,55 @@ body {
   cursor: pointer;
 }
 
-/* ---------- modals ---------- */
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.6);
-}
+/* ---------- modals (native <dialog>; tokens inherit through the DOM even in the top layer) ---------- */
 .modal {
   width: min(560px, calc(100vw - 48px));
+  max-width: none;
   max-height: calc(100vh - 96px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--s1);
+  color: var(--ink);
+  box-shadow: var(--e3);
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+  transition:
+    opacity var(--dur-fast) var(--ease-in),
+    transform var(--dur-fast) var(--ease-in),
+    overlay var(--dur-fast) allow-discrete,
+    display var(--dur-fast) allow-discrete;
+}
+.modal[open] {
   display: flex;
   flex-direction: column;
-  background: var(--s1);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-lg);
-  overflow: hidden;
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-out);
+}
+@starting-style {
+  .modal[open] {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+.modal::backdrop {
+  background: transparent;
+  transition:
+    background-color var(--dur-fast) var(--ease-in),
+    overlay var(--dur-fast) allow-discrete,
+    display var(--dur-fast) allow-discrete;
+}
+.modal[open]::backdrop {
+  background: var(--scrim);
+  transition-duration: var(--dur-base);
+}
+@starting-style {
+  .modal[open]::backdrop {
+    background: transparent;
+  }
 }
 .modal.wide {
   width: min(820px, calc(100vw - 48px));
@@ -1189,21 +1313,30 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 18px;
+  padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--hairline);
-  font: 600 16px / 1.2 var(--ui);
-  letter-spacing: -0.2px;
+  font: var(--fw-semibold) var(--fs-lg) / var(--lh-lg) var(--ui);
 }
 .modal-body {
-  padding: 18px;
+  padding: var(--sp-5);
   overflow: auto;
 }
 .modal-foot {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 18px;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
   border-top: 1px solid var(--hairline);
+}
+.modal-group + .modal-group {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--hairline);
+}
+.modal-group h3 {
+  margin: 0 0 var(--sp-3);
+  color: var(--ink);
+  font: var(--fw-semibold) var(--fs-sm) / var(--lh-sm) var(--ui);
 }
 .modal.icons {
   height: min(640px, calc(100vh - 96px));
@@ -1215,6 +1348,9 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.icon-grid .muted {
+  grid-column: 1 / -1;
 }
 .icon-grid {
   display: grid;
@@ -1277,18 +1413,29 @@ body {
   overflow-y: auto;
   align-content: start;
 }
+/* Centred on the board, not the window; rises in. Unmounts instantly (decision D5). */
 .toast {
-  position: fixed;
-  left: 50%;
-  bottom: 44px;
-  z-index: 200;
-  transform: translateX(-50%);
-  padding: 8px 14px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-md);
-  background: var(--s3);
+  position: absolute;
+  bottom: 60px;
+  left: calc((var(--code-w, 360px) + 100% - var(--ai-w, 340px)) / 2);
+  z-index: 20;
+  max-width: 480px;
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-lg);
+  background: var(--s4);
+  box-shadow: var(--e2);
   color: var(--ink);
-  font: 400 13px / 1.3 var(--ui);
+  font: var(--fw-regular) var(--fs-md) / var(--lh-md) var(--ui);
+  transform: translateX(-50%);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    translate var(--dur-fast) var(--ease-out);
+}
+@starting-style {
+  .toast {
+    opacity: 0;
+    translate: 0 8px;
+  }
 }
 
 .ai-source {

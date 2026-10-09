@@ -11,7 +11,7 @@ export function PaneToggle({ side, open }: { side: 'left' | 'right'; open: boole
     <button
       type="button"
       className={open ? 'btn icon' : 'rail'}
-      title={label}
+      data-tip={open ? label : undefined}
       aria-label={label}
       data-testid={`toggle-${side}`}
       onClick={() => useUi.getState().set({ [key]: !open })}

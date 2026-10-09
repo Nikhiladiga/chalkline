@@ -169,6 +169,11 @@ export function App() {
             <PaneToggle side="right" open={false} />
           )}
         </aside>
+        {toastMsg && (
+          <div className="toast" role="status">
+            {toastMsg}
+          </div>
+        )}
       </main>
       <footer className="status">
         <span className={errors.length ? 'bad' : 'ok'}>
@@ -184,11 +189,6 @@ export function App() {
       </footer>
       <Settings />
       <IconPicker />
-      {toastMsg && (
-        <div className="toast" role="status">
-          {toastMsg}
-        </div>
-      )}
     </div>
   );
 }

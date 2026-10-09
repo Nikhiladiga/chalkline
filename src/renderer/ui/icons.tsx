@@ -34,3 +34,4 @@ export const IconSun = P(
 export const IconPlus = P('M12 5v14M5 12h14');
 export const IconMinus = P('M5 12h14');
 export const IconRefresh = P('M20 11a8 8 0 10-2.3 5.7M20 4v7h-7');
+export const IconChevron = P('M6 9l6 6 6-6');
