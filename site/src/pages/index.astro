@@ -1,0 +1,143 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const asset = (p: string) => `${base}/${p}`;
+const releases = 'https://github.com/Nikhiladiga/chalkline/releases/latest';
+const repo = 'https://github.com/Nikhiladiga/chalkline';
+const features = [
+  ['Describe it', 'Write what the system does and get a diagram. Refine it with follow-up instructions.'],
+  ['Point it at code', 'Choose a folder and get a runtime architecture overview with source references and scan coverage.'],
+  ['3,856 icons', 'Search AWS, Azure, Google Cloud and general service icons, then drag them onto the canvas.'],
+  ['Draw by hand', 'Connect icons through eight ports with live preview and snapping. Move, resize, group and caption.'],
+  ['Visual or JSON', 'Switch between the icon palette and a JSON editor with completion and validation.'],
+  ['You stay in control', 'AI edits keep positions, can be cancelled, and undo in one step. Unsaved work is recovered.'],
+  ['Export anywhere', 'PNG at 1x or 2x with transparency, SVG, HTML and measured JSON. Copy PNG to the clipboard.'],
+  ['Auto-layout, pan, zoom', 'Tidy a diagram in one click, frame it with Fit, and use light or dark themes.'],
+];
+const works = ['Codex CLI', 'Claude Code CLI', 'LM Studio', 'OpenAI-compatible APIs'];
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chalkline</title>
+  <meta name="description" content="Architecture diagrams from ideas, code and your own AI harness. A desktop app for macOS and Windows." />
+  <meta name="theme-color" content="#1b1c22" />
+  <link rel="icon" href={asset('icon.png')} />
+  <meta property="og:title" content="Chalkline" />
+  <meta property="og:description" content="Architecture diagrams from ideas, code and your own AI harness." />
+  <meta property="og:image" content={new URL(asset('chalkline-demo.png'), Astro.site).href} />
+  <style>
+    :root {
+      --bg: #f6f6fa; --fg: #1b1c22; --muted: #52545f; --line: #d9daea;
+      --chalk: #4b57d6; --on-chalk: #fff; --panel: #ececf5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1b1c22; --fg: #eeeef5; --muted: #a6a8b6; --line: #33354a;
+        --chalk: #7581ee; --on-chalk: #14151a; --panel: #23242d;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 1.0625rem/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--chalk); text-underline-offset: 3px; }
+    :focus-visible { outline: 3px solid var(--chalk); outline-offset: 3px; border-radius: 4px; }
+    .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.25rem; }
+    .hero { padding: 4rem 0 0; }
+    .mark { width: 72px; height: 72px; border-radius: 16px; display: block; }
+    h1 {
+      font-size: clamp(2.8rem, 9vw, 6rem); line-height: 1; letter-spacing: -.04em;
+      margin: 1.5rem 0 1rem; font-weight: 800;
+    }
+    .lede { font-size: clamp(1.15rem, 2.4vw, 1.5rem); color: var(--muted); max-width: 32rem; margin: 0 0 2rem; line-height: 1.45; }
+    .cta { display: flex; flex-wrap: wrap; gap: .75rem; }
+    .btn {
+      display: inline-block; padding: .8rem 1.4rem; border-radius: 10px; font-weight: 650;
+      text-decoration: none; border: 2px solid var(--chalk);
+    }
+    .btn.primary { background: var(--chalk); color: var(--on-chalk); }
+    .btn.ghost { color: var(--fg); border-color: var(--line); }
+    .btn:hover { border-color: var(--chalk); }
+    .meta { color: var(--muted); font-size: .95rem; margin: 1rem 0 0; }
+    /* the chalk line: drawn once, runs from the hero into the screenshot */
+    .chalk { display: block; width: 100%; height: 56px; margin: 2rem 0 0; overflow: visible; }
+    .chalk path { stroke: var(--chalk); stroke-width: 3; fill: none; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      .chalk path { stroke-dashoffset: 1; animation: draw 1.4s .2s ease-out forwards; }
+      @keyframes draw { to { stroke-dashoffset: 0; } }
+    }
+    .shot { margin: 0; }
+    .shot img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 24px 60px -30px rgba(20, 20, 40, .5); }
+    .shot figcaption { color: var(--muted); font-size: .95rem; margin-top: .75rem; }
+    section { padding: 5rem 0 0; }
+    h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 1.1; margin: 0 0 1.75rem; max-width: 22ch; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 2rem 2.5rem; margin: 0; padding: 0; list-style: none; }
+    .features li { border-top: 2px solid var(--chalk); padding-top: .9rem; }
+    .features h3 { margin: 0 0 .35rem; font-size: 1.1rem; letter-spacing: -.01em; }
+    .features p { margin: 0; color: var(--muted); font-size: 1rem; }
+    .works { display: flex; flex-wrap: wrap; gap: .6rem; padding: 0; margin: 0 0 1rem; list-style: none; }
+    .works li { background: var(--panel); border-radius: 999px; padding: .35rem 1rem; font-weight: 600; }
+    .note { background: var(--panel); border-radius: 12px; padding: 1.5rem; max-width: 40rem; }
+    .note p { margin: 0 0 .75rem; }
+    .note ul { margin: 0; padding-left: 1.2rem; }
+    footer { margin-top: 5rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .95rem; }
+    footer p { margin: 0 0 .4rem; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <img class="mark" src={asset('icon.png')} alt="Chalkline app icon" width="72" height="72" />
+      <h1>Chalkline</h1>
+      <p class="lede">Architecture diagrams from ideas, code and your own AI harness.</p>
+      <div class="cta">
+        <a class="btn primary" href={releases}>Download</a>
+        <a class="btn ghost" href={repo}>GitHub</a>
+      </div>
+      <p class="meta">Free and open source. macOS (Apple Silicon and Intel) and Windows.</p>
+      <svg class="chalk" viewBox="0 0 1000 56" preserveAspectRatio="none" aria-hidden="true">
+        <path pathLength="1" vector-effect="non-scaling-stroke" d="M0 40 C 180 34, 300 46, 520 38 S 860 30, 1000 36" />
+      </svg>
+    </header>
+
+    <figure class="shot">
+      <img src={asset('chalkline-demo.png')} width="2880" height="1800" alt="Chalkline desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel" />
+      <figcaption>An AWS serverless demo: the icon palette, canvas and AI panel share one workspace.</figcaption>
+    </figure>
+
+    <section id="features">
+      <h2>From a sentence to a diagram you can edit</h2>
+      <ul class="features">
+        {features.map(([t, d]) => <li><h3>{t}</h3><p>{d}</p></li>)}
+      </ul>
+    </section>
+
+    <section id="works-with">
+      <h2>Works with the tools you already use</h2>
+      <ul class="works">{works.map((w) => <li>{w}</li>)}</ul>
+      <p class="meta">Use an installed CLI with its existing login, a local model, or an API. You can also draw without any AI.</p>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <div class="note">
+        <p>Builds are not code-signed yet, so your system will ask before opening them.</p>
+        <ul>
+          <li><strong>macOS:</strong> open the app once, then go to System Settings → Privacy &amp; Security and choose <strong>Open Anyway</strong>.</li>
+          <li><strong>Windows:</strong> in SmartScreen choose <strong>More info</strong> → <strong>Run anyway</strong>.</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>
+      <p>MIT licensed. Built on the open-source Eraser diagram engine.</p>
+      <p><a href={repo}>GitHub</a> · <a href={`${repo}/issues`}>Report an issue</a></p>
+    </footer>
+  </main>
+</body>
+</html>
