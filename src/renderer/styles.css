@@ -1,4 +1,5 @@
-/* Tokens from DESIGN.md. App CSS uses classes only, so nothing leaks into the diagram scene. */
+/* Chalkline chrome. Tokens live on .app, not :root, so ExportView keeps browser defaults.
+   Class selectors only, so nothing leaks into the diagram scene. */
 @font-face {
   font-family: "Inter UI";
   src: url("@fonts/Inter.var.woff2") format("woff2");
@@ -10,29 +11,6 @@
 }
 
 :root {
-  --primary: #5e6ad2;
-  --primary-hover: #828fff;
-  --primary-focus: #5e69d1;
-  --ink: #f7f8f8;
-  --ink-muted: #d0d6e0;
-  --ink-subtle: #8a8f98;
-  --ink-tertiary: #62666d;
-  --canvas: #010102;
-  --s1: #0f1011;
-  --s2: #141516;
-  --s3: #18191a;
-  --s4: #191a1b;
-  --hairline: #23252a;
-  --hairline-strong: #34343a;
-  --hairline-3: #3e3e44;
-  --sheet: #ffffff;
-  --success: #27a644;
-  --danger: #e5484d;
-  --warn: #d4a72c;
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
   --ui: "Inter UI", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono UI", ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -42,30 +20,154 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--canvas);
+  background: #08090b; /* frame colour until React mounts; ExportView sets its own */
 }
 
 .app {
-  /* Dark scheme for the chrome only: the export page must keep light defaults (black text). */
-  color-scheme: dark;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --r-xs: 4px; /* kbd chips, swatches, handles */
+  --r-sm: 6px; /* buttons, inputs, menu items, seg thumb */
+  --r-md: 8px; /* tiles, notes, cards, zoom control */
+  --r-lg: 10px; /* menus, popovers, toast, the board */
+  --r-xl: 14px; /* dialogs */
+  --fs-xs: 11px;
+  --lh-xs: 16px;
+  --fs-sm: 12px;
+  --lh-sm: 16px;
+  --fs-md: 13px;
+  --lh-md: 20px;
+  --fs-lg: 15px;
+  --lh-lg: 20px;
+  --fs-xl: 20px;
+  --lh-xl: 28px;
+  --fw-regular: 400;
+  --fw-medium: 510;
+  --fw-semibold: 590;
+  --dur-instant: 80ms; /* hover/pressed colour, menu exit */
+  --dur-fast: 140ms; /* menus, tooltips, toast, seg thumb, dialog exit */
+  --dur-base: 200ms; /* dialog entry, pane collapse */
+  --dur-slow: 280ms; /* Fit / zoom-button easing */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --control-h: 32px;
+  --control-h-sm: 28px;
+
   position: fixed;
   inset: 0;
   display: grid;
   grid-template-rows: 48px 1fr 28px;
-  font: 400 13px / 1.45 var(--ui);
+  font: var(--fw-regular) var(--fs-md) / 1.45 var(--ui);
   letter-spacing: -0.05px;
   color: var(--ink);
   background: var(--canvas);
   -webkit-font-smoothing: antialiased;
 }
+
+.app,
+.app[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #08090b;
+  --s1: #0f1013;
+  --s2: #16171b;
+  --s3: #1d1f24;
+  --s4: #24262c;
+  --board: #161618;
+  --grid-dot: #26282d;
+  --hairline: #22242a;
+  --hairline-strong: #2e3037;
+  --hairline-3: #3b3d45;
+  --ink: #f5f6f7;
+  --ink-muted: #c9ced6;
+  --ink-subtle: #8a8f98;
+  --ink-tertiary: #80858e;
+  --accent: #5e6ad2;
+  --accent-hover: #5461cf;
+  --accent-press: #4f5bc4;
+  --accent-soft: color-mix(in srgb, #7581ee 16%, transparent);
+  --line: #7581ee;
+  --guide: #f43f5e;
+  --success: #3fb950;
+  --danger: #e5484d;
+  --warn: #d4a72c;
+  --icon-tile: #ffffff;
+  --scrim: rgb(4 5 8 / 0.62);
+  --e1: 0 0 0 1px var(--hairline), 0 1px 2px rgb(0 0 0 / 0.4);
+  --e2:
+    0 0 0 1px var(--hairline-strong), 0 8px 24px -6px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.04);
+  --e3:
+    0 0 0 1px var(--hairline-strong), 0 24px 64px -16px rgb(0 0 0 / 0.7),
+    inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --syn-prop: #a7b0f5;
+  --syn-num: #e6b673;
+  --syn-punct: #80858e;
+}
+
+.app[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #eef0f3;
+  --s1: #fbfbfc;
+  --s2: #f3f4f6;
+  --s3: #e9ebef;
+  --s4: #ffffff;
+  --board: #f7f8fa;
+  --grid-dot: #d9dce2;
+  --hairline: #e3e5e9;
+  --hairline-strong: #d3d6dc;
+  --hairline-3: #c0c4cb;
+  --ink: #1b1c1f;
+  --ink-muted: #3c3f45;
+  --ink-subtle: #63676e;
+  --ink-tertiary: #686c73;
+  --accent: #5e6ad2;
+  --accent-hover: #5865d0;
+  --accent-press: #4f5bc4;
+  --accent-soft: color-mix(in srgb, #5e6ad2 12%, transparent);
+  --line: #5e6ad2;
+  --guide: #e11d48;
+  --success: #1f883d;
+  --danger: #ce2c31;
+  --warn: #9a6700;
+  --icon-tile: transparent;
+  --scrim: rgb(20 22 28 / 0.28);
+  --e1: 0 0 0 1px var(--hairline), 0 1px 2px rgb(16 18 24 / 0.06);
+  --e2: 0 0 0 1px var(--hairline-strong), 0 8px 24px -6px rgb(16 18 24 / 0.16);
+  --e3: 0 0 0 1px var(--hairline-strong), 0 24px 64px -16px rgb(16 18 24 / 0.24);
+  --syn-prop: #4a54b8;
+  --syn-num: #8a5300;
+  --syn-punct: #686c73;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+}
+/* e2e determinism: DG_TEST loads the page with ?test and App adds .test-mode. */
+.app.test-mode {
+  --dur-instant: 0ms;
+  --dur-fast: 0ms;
+  --dur-base: 0ms;
+  --dur-slow: 0ms;
+}
+
 .app *,
 .app *::before,
 .app *::after {
   box-sizing: border-box;
 }
 .app :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--primary-focus) 50%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--line);
+  outline-offset: 2px;
 }
 
 /* ---------- toolbar ---------- */
@@ -156,16 +258,16 @@ body {
   border-color: var(--hairline-strong);
 }
 .btn.primary {
-  background: var(--primary);
+  background: var(--accent);
   color: #fff;
   height: 32px;
   padding: 0 14px;
 }
 .btn.primary:hover {
-  background: var(--primary-hover);
+  background: var(--accent-hover);
 }
 .btn.primary:active {
-  background: var(--primary-focus);
+  background: var(--accent-press);
 }
 .btn.icon {
   width: 30px;
@@ -178,7 +280,7 @@ body {
   flex: none;
 }
 .kbd {
-  color: var(--ink-tertiary);
+  color: var(--ink-subtle);
   font-size: 12px;
   margin-left: auto;
   padding-left: 16px;
@@ -364,7 +466,7 @@ body {
   touch-action: none;
 }
 .palette-cell:hover {
-  border-color: var(--primary);
+  border-color: var(--line);
   background: var(--s2);
 }
 .palette-cell:active {
@@ -433,10 +535,12 @@ body {
 }
 .code-host .cm-editor .cm-selectionBackground,
 .code-host .cm-editor.cm-focused .cm-selectionBackground {
-  background: color-mix(in srgb, var(--primary) 30%, transparent);
+  background: color-mix(in srgb, var(--line) 30%, transparent);
 }
-.code-host .cm-focused {
-  outline: none;
+/* The editor's own focus indication: an inset chalk-line frame. */
+.code-host .cm-editor.cm-focused {
+  outline: 2px solid var(--line);
+  outline-offset: -2px;
 }
 .draft-bar {
   display: flex;
@@ -454,13 +558,13 @@ body {
   position: relative;
   overflow: hidden;
   min-width: 0;
-  background-color: var(--canvas);
-  background-image: radial-gradient(circle, #1d1e22 1px, transparent 1.2px);
+  background-color: var(--board);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.2px);
   background-size: 20px 20px;
   outline: none;
 }
 .canvas.icon-drop-active {
-  box-shadow: inset 0 0 0 2px var(--primary);
+  box-shadow: inset 0 0 0 2px var(--line);
 }
 .canvas.panning,
 .canvas.space {
@@ -482,16 +586,8 @@ body {
   isolation: isolate;
   z-index: 0;
   pointer-events: none;
-  background: var(--sheet);
   border-radius: 10px;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 24px 60px rgba(0, 0, 0, 0.55);
-}
-/* Dark theme: like eraser.io, the canvas itself is the diagram ground — no visible sheet. */
-.canvas.dark {
-  background-color: #161618;
-  background-image: radial-gradient(circle, #2a2b2f 1px, transparent 1.2px);
+  box-shadow: var(--e2);
 }
 .sheet.dark {
   box-shadow: none;
@@ -517,21 +613,21 @@ body {
   cursor: default;
 }
 .hit:hover {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 55%, transparent);
 }
 .hit.container {
   border-radius: 10px;
 }
 .hit.sel {
-  box-shadow: 0 0 0 2px var(--primary);
+  box-shadow: 0 0 0 2px var(--line);
 }
 .handle {
   position: absolute;
   width: 10px;
   height: 10px;
   border-radius: 2px;
-  background: #fff;
-  border: 1.5px solid var(--primary);
+  background: var(--s4);
+  border: 1.5px solid var(--line);
   cursor: nwse-resize;
   z-index: 3;
 }
@@ -540,8 +636,8 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--primary);
-  border: 2px solid #fff;
+  background: var(--line);
+  border: 2px solid var(--s4);
   cursor: crosshair;
   z-index: 3;
 }
@@ -562,19 +658,19 @@ body {
 .port-dot {
   width: 7px;
   height: 7px;
-  border: 1px solid var(--primary);
+  border: 1px solid var(--line);
   border-radius: 50%;
-  background: #fff;
+  background: var(--s4);
   pointer-events: none;
 }
 .connection-port:hover .port-dot,
 .connection-port:focus-visible .port-dot,
 .connection-port.target .port-dot {
-  background: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+  background: var(--line);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--line) 25%, transparent);
 }
 .hit.connection-target {
-  box-shadow: 0 0 0 2px var(--primary-hover);
+  box-shadow: 0 0 0 2px var(--line);
 }
 .link-svg,
 .conn-svg {
@@ -592,19 +688,19 @@ body {
   cursor: pointer;
 }
 .conn-hit.sel {
-  stroke: color-mix(in srgb, var(--primary) 45%, transparent);
+  stroke: color-mix(in srgb, var(--line) 45%, transparent);
   stroke-width: 6px;
 }
 .guide {
   position: absolute;
-  background: #f43f5e;
+  background: var(--guide);
   pointer-events: none;
   z-index: 4;
 }
 .marquee {
   position: absolute;
-  border: 1px solid var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--line) 12%, transparent);
   pointer-events: none;
   z-index: 5;
 }
@@ -614,10 +710,10 @@ body {
   min-width: 120px;
   min-height: 34px;
   padding: 6px 8px;
-  border: 2px solid var(--primary);
+  border: 2px solid var(--line);
   border-radius: 6px;
-  background: #fff;
-  color: #111;
+  background: var(--s4);
+  color: var(--ink);
   font:
     400 14px / 1.4 "Inter UI",
     sans-serif;
@@ -739,11 +835,12 @@ body {
   min-height: 96px;
   resize: vertical;
 }
-.input:focus,
-.select:focus,
-.textarea:focus {
-  outline: 2px solid color-mix(in srgb, var(--primary-focus) 50%, transparent);
-  border-color: var(--hairline-strong);
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  outline: none;
+  border-color: var(--line);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .check {
   display: flex;
@@ -753,7 +850,7 @@ body {
   font-size: 12.5px;
 }
 .check input {
-  accent-color: var(--primary);
+  accent-color: var(--accent);
 }
 .stage-line {
   display: flex;
@@ -826,7 +923,7 @@ body {
   cursor: pointer;
 }
 .swatch.on {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--line);
   outline-offset: 1px;
 }
 
@@ -937,7 +1034,7 @@ body {
   overflow: hidden;
 }
 .icon-cell:hover {
-  border-color: var(--primary);
+  border-color: var(--line);
   background: var(--s2);
 }
 .icon-cell img {
@@ -950,8 +1047,8 @@ body {
 .palette-thumbnail img:not([src^="icons://i/aws-"]):not([src="icons://i/aws.svg"]),
 .icon-cell img:not([src^="icons://i/aws-"]):not([src="icons://i/aws.svg"]) {
   padding: 4px;
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--r-sm);
+  background: var(--icon-tile);
 }
 .icon-cell span {
   width: 100%;

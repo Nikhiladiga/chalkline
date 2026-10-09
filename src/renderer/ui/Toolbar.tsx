@@ -19,11 +19,20 @@ const isMac = navigator.userAgent.includes('Mac');
 function BrandMark() {
   return (
     <svg className="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="2" y="2" width="9.5" height="9.5" rx="2.6" fill="none" stroke="#f3f1ea" strokeWidth="2.2" />
+      <rect
+        x="2"
+        y="2"
+        width="9.5"
+        height="9.5"
+        rx="2.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+      />
       <path
         d="M11.5 6.75h0.4a1.1 1.1 0 0 1 1.1 1.1v9.3a1.1 1.1 0 0 0 1.1 1.1h0.4"
         fill="none"
-        stroke="#f3f1ea"
+        stroke="currentColor"
         strokeWidth="2.2"
         strokeLinecap="round"
       />

@@ -144,9 +144,10 @@ export function App() {
   const warnings = useUi((s) => s.warnings);
   const toastMsg = useUi((s) => s.toast);
   const count = useDoc((s) => s.doc.entities.length);
+  const theme = useUi((s) => s.theme);
 
   return (
-    <div className="app">
+    <div className={`app${testMode ? ' test-mode' : ''}`} data-theme={theme}>
       <Toolbar />
       <main className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}>
         <LeftSidebar />
