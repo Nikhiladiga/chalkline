@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { launch } from './launch';
@@ -50,11 +50,15 @@ const DOC = {
 test('capture redesign screenshots', async () => {
   test.skip(!OUT, 'set DG_SCREENS_DIR to write screenshots');
   const dir = mkdtempSync(join(tmpdir(), 'dg-screens-'));
-  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ hostedIcons: false }));
+  // Real icons: seed the temp profile from the developer's icon cache, else fetch hosted ones.
+  const cache = join(homedir(), 'Library', 'Application Support', 'diagrammer', 'icon-cache');
+  const seeded = existsSync(cache);
+  if (seeded) cpSync(cache, join(dir, 'icon-cache'), { recursive: true });
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ hostedIcons: !seeded }));
   const { app, page } = await launch({ DG_USER_DATA: dir, DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1' });
   const shot = async (name: string) => {
     await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: join(OUT!, `${name}.png`) });
+    await page.screenshot({ path: join(OUT!, `${name}.png`), scale: 'css' }); // 1x, like before/
   };
   try {
     mkdirSync(OUT!, { recursive: true });
