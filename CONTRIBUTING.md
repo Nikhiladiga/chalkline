@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-- Node.js 24
+- Node.js 24 (22.18+ works)
 - pnpm 11 (`corepack enable`)
-- macOS 13+ or Windows 10+ to run the app
+- macOS 13+ for development (`pnpm dev`/`start` use POSIX `env`, which Windows `cmd.exe` lacks). Windows 10+ is supported for running released builds.
 
 ## Setup and run
 
@@ -34,7 +34,7 @@ See "Repository layout" in [AGENTS.md](AGENTS.md).
 
 ## Releases
 
-Every merge to `main` that changes the app builds and publishes a GitHub Release: the next patch tag (`vX.Y.Z`), macOS DMGs (arm64 and x64), a Windows EXE, and notes generated from merged PRs. To bump the minor or major version, set `version` in `package.json` in your PR. Do not create tags by hand. Builds are unsigned.
+Every push to `main` that changes app files (not only `site/`, Markdown or LICENSE) builds and publishes a GitHub Release with the next patch tag (`vX.Y.Z`): macOS DMGs (arm64 and x64), a Windows EXE, and notes generated from merged PRs. To bump the minor or major version, set `version` in `package.json` in your PR. Do not create tags by hand. Builds are unsigned.
 
 ## Signed macOS release
 

@@ -32,6 +32,6 @@ Live CLI acceptance tests are opt-in and use the user's login and quota. Source-
 - Provider calls run in main; API keys never enter the renderer. Providers include Codex CLI, Claude Code CLI, LM Studio and OpenAI-compatible APIs.
 - Preserve isolated CLI generation and bounded source scanning. Default code-folder diagrams describe runtime architecture, rather than import graphs.
 - Keep document session/revision guards, invalid-code recovery and atomic writes intact. User edits must survive delayed save and AI completions.
-- Every push to `main` builds and publishes a GitHub Release (next patch tag); do not create tags by hand.
+- Every push to `main` that changes app files (not only `site/`, Markdown or LICENSE) builds and publishes a GitHub Release with the next patch tag; do not create tags by hand.
 - Unset `ELECTRON_RUN_AS_NODE` for desktop launches; some development shells export it.
 - Verify changes with appropriate checks. Get explicit approval before committing and pushing or publishing a release.

@@ -9,4 +9,5 @@ check 0.1.0 $'v0.1.9\nv0.1.10'         v0.1.11  # numeric, not lexical, sort
 check 0.1.0 $'v0.1.3\nv0.2.0-beta'     v0.1.4   # ignore non-plain tags
 check 0.2.0 "v0.1.4"                   v0.2.0   # package.json bumped ahead
 check 0.1.0 "v0.3.2"                   v0.3.3   # tag ahead of package.json
+if PKG_VERSION=0.2.0-beta TAGS="" bash "$s" >/dev/null 2>&1; then echo "FAIL: pre-release pkg version accepted"; exit 1; fi
 echo ok

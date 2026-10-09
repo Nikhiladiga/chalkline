@@ -25,7 +25,7 @@ Chalkline is a desktop application for creating and editing architecture diagram
 
 Use an installed Codex or Claude Code CLI with its existing login, a local model through LM Studio, or an OpenAI-compatible API. You can also draw manually without configuring AI.
 
-**Status:** version 0.1.0 beta. Download macOS (Apple Silicon and Intel) and Windows builds from [Releases](https://github.com/Nikhiladiga/chalkline/releases/latest). Website: https://nikhiladiga.github.io/chalkline
+**Status:** beta. Download macOS (Apple Silicon and Intel) and Windows x64 builds from the [latest release](https://github.com/Nikhiladiga/chalkline/releases/latest). Website: https://nikhiladiga.github.io/chalkline
 
 ## Download
 
@@ -69,7 +69,7 @@ An installed CLI uses its provider's model service; it does not necessarily run 
 
 ### Run from source
 
-Requirements: **Node.js 22.18+** and **pnpm**. The current macOS build requires **macOS 13+**. An AI provider is optional for manual editing.
+Requirements: **Node.js 24** (22.18+ works) and **pnpm**. The current macOS build requires **macOS 13+**. An AI provider is optional for manual editing.
 
 ```sh
 git clone https://github.com/Nikhiladiga/chalkline.git
@@ -127,7 +127,7 @@ These are proposed priorities, not features available in the current release. Sc
 ### Near term
 
 - [ ] Publish signed/notarized macOS releases and a Homebrew cask.
-- [ ] Validate installers, harness execution and exports on Windows, Linux and Intel macOS.
+- [ ] Broaden testing of installers, harness execution and exports on Windows and Intel macOS, and add Linux builds.
 - [ ] Improve code-folder architecture quality with larger real-project evaluations and clearer source evidence.
 - [ ] Add starter diagrams for common cloud, API, database, search and queue architectures.
 
@@ -168,9 +168,9 @@ The app uses Electron, React, TypeScript, Zustand, CodeMirror, ELK and the Erase
 | `pnpm release:mac` | Signed/notarized macOS release workflow, with release credentials configured. |
 | `pnpm brew:prepare` | Prepare a Homebrew cask from a release archive; see CONTRIBUTING.md for arguments. |
 
-Artifacts are written to `dist/`. A local ad hoc macOS build is not a notarized public release. Windows, Linux and Intel macOS need platform-specific acceptance before support is advertised. The development `dev`/`start` commands use a POSIX `env` wrapper; Windows development may require a compatible shell or launching electron-vite directly with `ELECTRON_RUN_AS_NODE` unset.
+Artifacts are written to `dist/`. A local ad hoc macOS build is not a notarized public release. Apple Silicon and Intel macOS and Windows x64 builds are published automatically and are early (beta, unsigned); please report issues. Linux is not published. Development is supported on macOS; the `dev`/`start` scripts use a POSIX `env` wrapper that Windows `cmd.exe` lacks.
 
-Every merge to `main` publishes a GitHub Release with macOS (arm64, x64) and Windows builds; see [Releases](https://github.com/Nikhiladiga/chalkline/releases). These builds are unsigned. For signing, notarization and Homebrew cask preparation, see [CONTRIBUTING.md](CONTRIBUTING.md#signed-macos-release).
+Every push to `main` that changes app files (not only `site/`, Markdown or LICENSE) builds and publishes a GitHub Release with the next patch tag, including macOS (arm64, x64) and Windows builds; see [Releases](https://github.com/Nikhiladiga/chalkline/releases). These builds are unsigned. For signing, notarization and Homebrew cask preparation, see [CONTRIBUTING.md](CONTRIBUTING.md#signed-macos-release).
 
 ## Contributing
 

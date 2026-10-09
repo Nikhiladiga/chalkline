@@ -43,7 +43,7 @@ jobs:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -51,9 +51,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - shell: bash
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          ARGS: ${{ matrix.args }}
         run: |
-          v="${{ needs.version.outputs.tag }}"
-          pnpm exec electron-builder ${{ matrix.args }} --publish never -c.extraMetadata.version="${v#v}"
+          # shellcheck disable=SC2086
+          pnpm exec electron-builder $ARGS --publish never -c.extraMetadata.version="${TAG#v}"
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}
