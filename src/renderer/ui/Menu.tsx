@@ -30,7 +30,11 @@ export function Menu({
   };
   useEffect(() => {
     if (!open) return;
-    wrap.current?.querySelector<HTMLElement>(ITEMS)?.focus();
+    const first = wrap.current?.querySelector<HTMLElement>(ITEMS);
+    // A static list (Shortcuts) has nothing to act on: focus the menu, not a row that would look selected.
+    if (first?.getAttribute('aria-disabled') === 'true')
+      wrap.current?.querySelector<HTMLElement>('.menu')?.focus();
+    else first?.focus();
     const onDown = (e: PointerEvent) => {
       if (!wrap.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -52,6 +56,10 @@ export function Menu({
       End: items.length - 1,
     };
     const next = moves[e.key];
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.stopPropagation(); // not a canvas nudge
+      return;
+    }
     if (e.key === 'Escape') close();
     else if (next !== undefined) items[(next + items.length) % items.length]?.focus();
     else return;
@@ -74,7 +82,7 @@ export function Menu({
         {label}
         {chevron && <IconChevron />}
       </button>
-      <div className="menu" role="menu" aria-label={label} hidden={!open} onKeyDown={onKeyDown}>
+      <div className="menu" role="menu" aria-label={label} tabIndex={-1} hidden={!open} onKeyDown={onKeyDown}>
         {children(close)}
       </div>
     </div>

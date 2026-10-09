@@ -32,6 +32,8 @@ interface UiState {
   iconPick: ((name: string) => void) | null;
   toast: string | null;
   fitRequest: number;
+  /** Fit once the next render of the (just changed) document lands, not the stale one. */
+  fitPending: boolean;
   /** Bump to re-render the current document. */
   renderTick: number;
   theme: Theme;
@@ -54,6 +56,7 @@ export const useUi = create<UiState>((set) => ({
   iconPick: null,
   toast: null,
   fitRequest: 0,
+  fitPending: false,
   renderTick: 0,
   theme: 'dark',
   ease: null,
@@ -91,6 +94,7 @@ export function setPane(side: 'left' | 'right', open: boolean): void {
   ui.set({ showCode: open, pan: { x: ui.pan.x + (open ? -delta : delta), y: ui.pan.y } });
 }
 
+export const requestFitAfterRender = () => useUi.setState({ fitPending: true });
 export const requestFit = () => {
   easeView('view');
   useUi.setState((s) => ({ fitRequest: s.fitRequest + 1 }));

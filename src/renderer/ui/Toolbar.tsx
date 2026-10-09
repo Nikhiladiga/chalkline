@@ -13,6 +13,9 @@ import {
 } from './icons';
 import { Menu } from './Menu';
 import { isMac, mod } from './platform';
+
+const ctl = isMac ? 'Meta' : 'Control';
+
 import { useUi } from './uiStore';
 
 /** The app icon's glyph without its tile: a chalk box, a snapped line, a lavender box. */
@@ -72,6 +75,7 @@ export function Toolbar() {
         className="btn icon"
         data-tip="Undo"
         data-kbd={`${mod}Z`}
+        aria-keyshortcuts={`${ctl}+Z`}
         aria-label="Undo"
         disabled={!canUndo}
         onClick={() => useDoc.getState().undo()}
@@ -83,6 +87,7 @@ export function Toolbar() {
         className="btn icon"
         data-tip="Redo"
         data-kbd={`${mod}⇧Z`}
+        aria-keyshortcuts={`${ctl}+Shift+Z`}
         aria-label="Redo"
         disabled={!canRedo}
         onClick={() => useDoc.getState().redo()}
@@ -94,6 +99,7 @@ export function Toolbar() {
         type="button"
         className="btn"
         data-tip="Lay out the whole diagram again"
+        aria-description="Lay out the whole diagram again"
         onClick={() => void autoLayoutAll()}
       >
         <IconLayout />
@@ -192,6 +198,7 @@ export function Toolbar() {
         className="btn icon"
         data-tip="Settings"
         data-kbd={`${mod},`}
+        aria-keyshortcuts={`${ctl}+,`}
         aria-label="Settings"
         onClick={() => set({ settingsOpen: true })}
       >

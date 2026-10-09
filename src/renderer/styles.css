@@ -86,6 +86,8 @@ body {
   --ink: #f5f6f7;
   --ink-muted: #c9ced6;
   --ink-subtle: #8a8f98;
+  /* The IconChevron stroke as a select arrow; a data URI cannot read tokens, so it repeats --ink-subtle. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8f98' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --ink-tertiary: #80858e;
   --accent: #5e6ad2;
   --accent-hover: #5461cf;
@@ -124,6 +126,8 @@ body {
   --ink: #1b1c1f;
   --ink-muted: #3c3f45;
   --ink-subtle: #63676e;
+  /* The IconChevron stroke as a select arrow; a data URI cannot read tokens, so it repeats --ink-subtle. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2363676e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --ink-tertiary: #686c73;
   --accent: #5e6ad2;
   --accent-hover: #5865d0;
@@ -348,6 +352,11 @@ body {
   background: rgb(0 0 0 / 0.2);
   color: #fff;
 }
+/* The shortcut chip follows the disabled state too. */
+.btn.primary:disabled .kbd {
+  background: var(--s2);
+  color: var(--ink-tertiary);
+}
 
 /* dropdown menus */
 .menu-wrap {
@@ -421,7 +430,7 @@ body {
   height: 1px;
   margin: var(--sp-1) 6px;
   border: 0;
-  background: var(--hairline);
+  background: var(--hairline-3);
 }
 .menu-check {
   display: flex;
@@ -441,7 +450,7 @@ body {
   position: relative;
 }
 [data-tip]::after {
-  content: attr(data-tip);
+  content: attr(data-tip) / ""; /* alt text keeps the tooltip out of the accessible name */
   position: absolute;
   top: calc(100% + 6px);
   left: 50%;
@@ -459,7 +468,7 @@ body {
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 [data-kbd]::after {
-  content: attr(data-tip) "   " attr(data-kbd);
+  content: attr(data-tip) "   " attr(data-kbd) / "";
 }
 [data-tip]:hover::after,
 [data-tip]:focus-visible::after {
@@ -696,12 +705,22 @@ body {
   color: var(--ink-subtle);
   font-size: var(--fs-sm);
 }
-/* Pinned AI composer: selection never moves it; at least 320px so Generate stays reachable at 600px tall. */
+/* Nothing selected: a quiet, centred empty state in the space above the composer. */
+.details-scroll:has(> .details-hint) {
+  display: grid;
+}
+.details-hint {
+  align-self: center;
+  text-align: center;
+}
+/* Pinned AI composer: it keeps its own height (no cap) while the inspector is absent, so its notes are never clipped. */
 .composer {
   flex: none;
-  max-height: max(55%, 320px);
   overflow: auto;
   border-top: 1px solid var(--hairline);
+}
+.details:has([data-testid="inspector"]) .composer {
+  max-height: max(55%, 320px); /* selection never moves it; Generate stays reachable at 600px tall */
 }
 .composer > .section {
   border-bottom: 0;
@@ -793,7 +812,7 @@ body {
 /* ---------- canvas ---------- */
 .canvas {
   position: relative;
-  overflow: hidden;
+  overflow: clip; /* never programmatically scrollable: focus or scrollIntoView cannot displace the board chrome */
   min-width: 0;
   background-color: var(--board);
   background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.2px);
@@ -1154,17 +1173,13 @@ body {
 .textarea::placeholder {
   color: var(--ink-tertiary);
 }
-/* Native select for accessibility, drawn like an input; the chevron is two token-coloured gradients. */
+/* Native select for accessibility, drawn like an input; the chevron is the stroke IconChevron. */
 .select {
   appearance: none;
   padding-right: 28px;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--ink-subtle) 50%),
-    linear-gradient(135deg, var(--ink-subtle) 50%, transparent 50%);
-  background-position:
-    calc(100% - 15px) 55%,
-    calc(100% - 10px) 55%;
-  background-size: 5px 5px;
+  background-image: var(--chevron);
+  background-position: right 8px center;
+  background-size: 14px 14px;
   background-repeat: no-repeat;
 }
 .select:disabled {
@@ -1285,6 +1300,14 @@ body {
 .note ul {
   margin: var(--sp-1) 0 0;
   padding-left: 18px;
+}
+/* The inline Retry button sits on its own line, flush with the note text. */
+.note > .btn {
+  display: flex;
+  margin: var(--sp-1) 0 0 calc(-1 * var(--sp-2));
+}
+.menu:focus {
+  outline: none;
 }
 .note-actions {
   display: flex;

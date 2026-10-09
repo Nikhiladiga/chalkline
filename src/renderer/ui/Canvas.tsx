@@ -145,6 +145,13 @@ export function Canvas() {
       fitView();
     }
   }, [render, fitView]);
+  // A fit asked for by a document change waits for that document's render.
+  useEffect(() => {
+    if (render && useUi.getState().fitPending) {
+      useUi.setState({ fitPending: false });
+      requestFit();
+    }
+  }, [render]);
 
   // Wheel: pan; ctrl/cmd + wheel (and trackpad pinch): zoom around the cursor.
   useEffect(() => {

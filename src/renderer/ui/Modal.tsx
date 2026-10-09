@@ -52,6 +52,10 @@ export function Modal({
       className={`modal ${className}`}
       aria-label={title}
       onClose={onClose}
+      onCancel={(e) => {
+        e.preventDefault(); // Escape: close through state, so the store never lags the dialog
+        onClose();
+      }}
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onClose(); // the backdrop
       }}

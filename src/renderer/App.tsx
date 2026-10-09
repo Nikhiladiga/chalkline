@@ -42,7 +42,7 @@ function useRenderLoop(): void {
       if (!r.ok && r.stale) return;
       const ui = useUi.getState();
       if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
-      else ui.set({ errors: r.errors, warnings: r.warnings });
+      else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });
     });
   }, [doc, tick, theme]);
 }

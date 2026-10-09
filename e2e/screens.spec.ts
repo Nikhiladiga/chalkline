@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -9,7 +9,14 @@ const OUT = process.env.DG_SCREENS_DIR;
 const DOC = {
   entities: [
     { tag: 'Icon', id: 'client', x: 40, y: 160, icon: 'user', texts: [{ text: 'Client' }] },
-    { tag: 'Icon', id: 'api-gateway', x: 200, y: 160, icon: 'api-gateway', texts: [{ text: 'API Gateway' }] },
+    {
+      tag: 'Icon',
+      id: 'api-gateway',
+      x: 200,
+      y: 160,
+      icon: 'aws-api-gateway',
+      texts: [{ text: 'API Gateway' }],
+    },
     {
       tag: 'Group',
       id: 'vpc',
@@ -24,7 +31,7 @@ const DOC = {
       id: 'lambda',
       x: 400,
       y: 160,
-      icon: 'lambda',
+      icon: 'aws-lambda',
       containerId: 'vpc',
       texts: [{ text: 'Lambda' }],
     },
@@ -37,7 +44,15 @@ const DOC = {
       containerId: 'vpc',
       texts: [{ text: 'DynamoDB' }],
     },
-    { tag: 'Icon', id: 'bucket', x: 620, y: 240, icon: 's3', containerId: 'vpc', texts: [{ text: 'S3' }] },
+    {
+      tag: 'Icon',
+      id: 'bucket',
+      x: 620,
+      y: 240,
+      icon: 'aws-simple-storage-service',
+      containerId: 'vpc',
+      texts: [{ text: 'S3' }],
+    },
   ],
   connections: [
     { from: 'client', to: 'api-gateway' },
@@ -52,7 +67,7 @@ test('capture redesign screenshots', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dg-screens-'));
   // Real icons: seed the temp profile from the developer's icon cache, else fetch hosted ones.
   const cache = join(homedir(), 'Library', 'Application Support', 'diagrammer', 'icon-cache');
-  const seeded = existsSync(cache);
+  const seeded = existsSync(cache) && readdirSync(cache).length > 0;
   if (seeded) cpSync(cache, join(dir, 'icon-cache'), { recursive: true });
   writeFileSync(join(dir, 'settings.json'), JSON.stringify({ hostedIcons: !seeded }));
   const { app, page } = await launch({ DG_USER_DATA: dir, DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1' });

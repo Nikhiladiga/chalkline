@@ -14,7 +14,6 @@ const DOC = {
   ],
   connections: [{ from: 'web', to: 'api' }],
 };
-// biome-ignore lint/correctness/noUnusedVariables: used by later redesign tests
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 let app: ElectronApplication | undefined;
 let dir: string | undefined;
@@ -96,6 +95,80 @@ test('Settings is a native modal: focus moves in, Escape closes it, focus return
   await expect(dialog).toHaveCount(0);
   await expect(button).toBeFocused();
   expect(await page.evaluate(() => (window as any).__dg.ui.getState().settingsOpen)).toBe(false);
+});
+
+test('Settings reopens right after Escape (the store never lags the dialog)', async () => {
+  const page = await open();
+  const button = page.getByRole('button', { name: 'Settings', exact: true });
+  for (let i = 0; i < 3; i++) {
+    await button.click();
+    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    // Synchronously after Escape: the store is already closed, so an immediate click reopens.
+    expect(await page.evaluate(() => (window as any).__dg.ui.getState().settingsOpen)).toBe(false);
+  }
+  await button.click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});
+
+test('opening a document larger than the viewport fits the whole diagram in the board', async () => {
+  const page = await open();
+  const big = {
+    entities: [
+      { tag: 'Shape', id: 'a', x: 0, y: 0, width: 140, height: 60, texts: [{ text: 'A' }] },
+      { tag: 'Shape', id: 'b', x: 3000, y: 2000, width: 140, height: 60, texts: [{ text: 'B' }] },
+    ],
+    connections: [{ from: 'a', to: 'b' }],
+  };
+  await page.evaluate((d) => (window as any).__dg.actions.loadText(JSON.stringify(d), null), big);
+  await expect.poll(() => page.locator('.hit').count()).toBe(2);
+  const inside = async () => {
+    const board = await page.locator('.canvas').boundingBox();
+    const [a, b] = await Promise.all(
+      ['a', 'b'].map((id) => page.locator(`.hit[data-id="${id}"]`).boundingBox()),
+    );
+    return [a!, b!].every(
+      (r) =>
+        r.x >= board!.x &&
+        r.y >= board!.y &&
+        r.x + r.width <= board!.x + board!.width &&
+        r.y + r.height <= board!.y + board!.height,
+    );
+  };
+  await expect.poll(inside).toBe(true);
+});
+
+test('tooltips stay out of accessible names; shortcuts and descriptions are exposed', async () => {
+  const page = await open();
+  const layout = page.getByRole('button', { name: 'Auto-layout', exact: true });
+  await expect(layout).toHaveAttribute('aria-description', 'Lay out the whole diagram again');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveAttribute(
+    'aria-keyshortcuts',
+    `${mod}+Z`,
+  );
+});
+
+test('Shortcuts menu opens without a focused row; Left/Right do not nudge the selection', async () => {
+  const page = await open();
+  await page.locator('.hit[data-id="web"]').click();
+  const x = () => page.evaluate(() => (window as any).__dg.doc.getState().doc.entities[0].x);
+  const before = await x();
+  await page.getByTestId('shortcuts-menu').click();
+  const menu = page.getByRole('menu', { name: 'Shortcuts' });
+  await expect(menu).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
+  expect(await x()).toBe(before);
+});
+
+test('details pane at rest: centred empty state, composer never clipped', async () => {
+  const page = await open();
+  const hint = page.locator('.details-hint');
+  const scroll = page.locator('.details-scroll');
+  const [h, s] = await Promise.all([hint.boundingBox(), scroll.boundingBox()]);
+  expect(Math.abs(h!.y + h!.height / 2 - (s!.y + s!.height / 2))).toBeLessThan(4);
+  const c = page.locator('.composer');
+  expect(await c.evaluate((e) => e.scrollHeight <= e.clientHeight)).toBe(true);
 });
 
 test('export menu: focus moves in, arrows rove and wrap, Escape returns focus', async () => {
