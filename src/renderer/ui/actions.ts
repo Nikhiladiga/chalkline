@@ -9,7 +9,7 @@ import { groundOf } from '../engine/theme';
 import { emptyDoc, SHEET_PAD } from '../engine/types';
 import { autoLayout } from '../layout/elk';
 import { iconNames } from './iconCatalog';
-import { requestFit, toast, useUi } from './uiStore';
+import { requestFit, setPane, toast, useUi } from './uiStore';
 
 const availableIcons = new Set(iconNames);
 
@@ -70,7 +70,8 @@ export function restoreRecovery(text: string): void {
     loadText(JSON.stringify(snapshot.doc), null);
     if (typeof snapshot.codeDraft === 'string') {
       useDoc.getState().setCodeDraft(snapshot.codeDraft);
-      useUi.getState().set({ showCode: true, leftMode: 'code' });
+      useUi.getState().set({ leftMode: 'code' });
+      setPane('left', true);
     }
     useDoc.setState({ dirty: true });
   } catch (e) {

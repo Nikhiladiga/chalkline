@@ -69,6 +69,28 @@ export function easeView(kind: 'pane' | 'view'): void {
   easeTimer = setTimeout(() => useUi.setState({ ease: null }), 320);
 }
 
+/**
+ * The one way to open or close a side pane. The left pane moves the board's left edge, so pan shifts
+ * by the same amount, with the same easing as the column, and the diagram stays put on screen.
+ */
+export function setPane(side: 'left' | 'right', open: boolean): void {
+  const ui = useUi.getState();
+  if (side === 'right') {
+    ui.set({ showAi: open });
+    return;
+  }
+  if (ui.showCode === open) return;
+  const ws = document.querySelector('.workspace');
+  const css = ws ? getComputedStyle(ws) : null;
+  const delta =
+    (css
+      ? Number.parseFloat(css.getPropertyValue('--code-open')) -
+        Number.parseFloat(css.getPropertyValue('--rail'))
+      : 0) || 0;
+  easeView('pane');
+  ui.set({ showCode: open, pan: { x: ui.pan.x + (open ? -delta : delta), y: ui.pan.y } });
+}
+
 export const requestFit = () => {
   easeView('view');
   useUi.setState((s) => ({ fitRequest: s.fitRequest + 1 }));

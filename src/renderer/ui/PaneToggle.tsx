@@ -1,25 +1,10 @@
 import { IconPanelLeft, IconPanelRight } from './icons';
-import { easeView, useUi } from './uiStore';
+import { setPane, useUi } from './uiStore';
 
-/**
- * Collapse or expand a side pane. The left pane moves the board's left edge, so pan shifts by the
- * same amount, with the same easing as the column, and the diagram stays put on screen.
- */
+/** Collapse or expand a side pane (see `setPane`). */
 export function togglePane(side: 'left' | 'right'): void {
   const ui = useUi.getState();
-  if (side === 'right') {
-    ui.set({ showAi: !ui.showAi });
-    return;
-  }
-  const ws = document.querySelector('.workspace');
-  const css = ws ? getComputedStyle(ws) : null;
-  const delta =
-    (css
-      ? Number.parseFloat(css.getPropertyValue('--code-open')) -
-        Number.parseFloat(css.getPropertyValue('--rail'))
-      : 0) || 0;
-  easeView('pane');
-  ui.set({ showCode: !ui.showCode, pan: { x: ui.pan.x + (ui.showCode ? delta : -delta), y: ui.pan.y } });
+  setPane(side, !(side === 'left' ? ui.showCode : ui.showAi));
 }
 
 export function PaneToggle({ side, open }: { side: 'left' | 'right'; open: boolean }) {

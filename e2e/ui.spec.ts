@@ -138,15 +138,17 @@ test('a long file name keeps the unsaved dot visible', async () => {
 });
 
 /** Mock OpenAI-compatible LLM that answers after 1.5 s, so a run is still going when the test acts. */
-async function slowLlm(): Promise<{ url: string; close: () => void }> {
+async function slowLlm(reply?: string): Promise<{ url: string; close: () => void }> {
   const server = createServer((req, res) => {
     if (req.url?.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'mock' }] }));
     req.resume();
     req.on('end', () => {
-      const text = JSON.stringify({
-        ...DOC,
-        entities: [...DOC.entities, { tag: 'Shape', id: 'db', x: 560, y: 40, texts: [{ text: 'DB' }] }],
-      });
+      const text =
+        reply ??
+        JSON.stringify({
+          ...DOC,
+          entities: [...DOC.entities, { tag: 'Shape', id: 'db', x: 560, y: 40, texts: [{ text: 'DB' }] }],
+        });
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`);
@@ -228,6 +230,23 @@ test('an AI run survives collapsing the details pane', async () => {
       (window as any).__dg.doc.getState().doc.entities.map((e: any) => e.id),
     );
     expect(ids).toContain('db');
+  } finally {
+    llm.close();
+  }
+});
+
+test('an invalid AI draft opening the collapsed code pane keeps the diagram still', async () => {
+  const llm = await slowLlm('{ not valid json');
+  try {
+    const page = await open({}, { DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    const hit = page.locator('.hit[data-id="web"]');
+    await page.getByTestId('toggle-left').click();
+    await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(0);
+    const x0 = (await hit.boundingBox())!.x;
+    await page.getByTestId('ai-prompt').fill('anything');
+    await page.getByTestId('ai-run').click();
+    await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(1, { timeout: 15_000 });
+    await expect.poll(async () => Math.abs((await hit.boundingBox())!.x - x0)).toBeLessThan(1);
   } finally {
     llm.close();
   }

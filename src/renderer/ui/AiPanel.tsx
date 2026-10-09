@@ -12,7 +12,7 @@ import { ipcMessage } from './actions';
 import { CodeFolder } from './CodeFolder';
 import { IconRefresh } from './icons';
 import { mod } from './platform';
-import { requestFit, useUi } from './uiStore';
+import { requestFit, setPane, useUi } from './uiStore';
 
 type Outcome = (AiResult & { mode: 'generate' | 'edit' }) | null;
 
@@ -209,7 +209,8 @@ export function AiPanel() {
           return;
         }
         useDoc.getState().setCodeDraft(result.draft);
-        useUi.getState().set({ draft: result.draft, showCode: true, leftMode: 'code' });
+        useUi.getState().set({ draft: result.draft, leftMode: 'code' });
+        setPane('left', true);
       }
       setOutcome({ ...result, mode });
     } catch (e) {
