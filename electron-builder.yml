@@ -14,6 +14,8 @@ extraResources:
   - from: third_party/eraser-diagrams/LICENSE
     to: licenses/eraser-diagrams-MIT.txt
 asar: true
+# Releases are created by .github/workflows/release.yml (gh release create), not by electron-builder.
+publish: null
 mac:
   icon: build/icon.png
   category: public.app-category.graphics-design

@@ -8,7 +8,7 @@ Chalkline is an Electron desktop architecture diagram editor built with React an
 - `pnpm check` — TypeScript, Biome and unit tests.
 - `pnpm test:e2e` — production build and Playwright Electron tests.
 - `pnpm dist:mac` — local ad hoc signed macOS bundle; not notarized.
-- `pnpm release:mac` — signed/notarized release; see `docs/homebrew-release.md`.
+- `pnpm release:mac` — signed/notarized release; see `CONTRIBUTING.md#signed-macos-release`.
 
 Live CLI acceptance tests are opt-in and use the user's login and quota. Source-folder generation sends selected excerpts to the selected provider.
 
@@ -21,7 +21,7 @@ Live CLI acceptance tests are opt-in and use the user's login and quota. Source-
 - `src/renderer/ai` — prompts, parsing, repair, icon resolution and edit merging.
 - `src/renderer/layout` — overlap checks and ELK auto-layout.
 - `src/renderer/ui` — canvas, icon palette, code editor and settings.
-- `e2e` — native desktop regression tests; `docs` — user and release guides.
+- `e2e` — native desktop regression tests; `site` — Astro website; `.github/workflows` — CI, releases and site deploy.
 
 ## Conventions
 
@@ -32,5 +32,6 @@ Live CLI acceptance tests are opt-in and use the user's login and quota. Source-
 - Provider calls run in main; API keys never enter the renderer. Providers include Codex CLI, Claude Code CLI, LM Studio and OpenAI-compatible APIs.
 - Preserve isolated CLI generation and bounded source scanning. Default code-folder diagrams describe runtime architecture, rather than import graphs.
 - Keep document session/revision guards, invalid-code recovery and atomic writes intact. User edits must survive delayed save and AI completions.
+- Every push to `main` that changes app files (not only `site/`, Markdown or LICENSE) builds and publishes a GitHub Release with the next patch tag; do not create tags by hand.
 - Unset `ELECTRON_RUN_AS_NODE` for desktop launches; some development shells export it.
 - Verify changes with appropriate checks. Get explicit approval before committing and pushing or publishing a release.
