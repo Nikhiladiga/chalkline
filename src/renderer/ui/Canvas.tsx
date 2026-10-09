@@ -18,6 +18,7 @@ import { type Box, type Doc, SHEET_PAD } from '../engine/types';
 import { insertIconAt } from './actions';
 import { ConnectionPorts } from './ConnectionPorts';
 import { ICON_MIME } from './iconCatalog';
+import { IconMinus, IconPlus } from './icons';
 import { requestFit, useUi } from './uiStore';
 
 const MIN_ZOOM = 0.1;
@@ -712,16 +713,23 @@ export function Canvas() {
           aria-label="Zoom out"
           onClick={() => zoomBy(1 / 1.25, view.current)}
         >
-          −
+          <IconMinus />
         </button>
-        <span>{Math.round(zoom * 100)}%</span>
+        <button
+          type="button"
+          className="btn zoom-pct"
+          aria-label="Reset zoom to 100%"
+          onClick={() => zoomTo(1, view.current)}
+        >
+          {Math.round(zoom * 100)}%
+        </button>
         <button
           type="button"
           className="btn icon"
           aria-label="Zoom in"
           onClick={() => zoomBy(1.25, view.current)}
         >
-          +
+          <IconPlus />
         </button>
         <button type="button" className="btn" onClick={requestFit}>
           Fit
@@ -732,9 +740,14 @@ export function Canvas() {
 }
 
 function zoomBy(factor: number, v: HTMLDivElement | null): void {
+  zoomTo(useUi.getState().zoom * factor, v);
+}
+
+/** Zoom to `target` around the board's centre. */
+function zoomTo(target: number, v: HTMLDivElement | null): void {
   if (!v) return;
   const { zoom: z, pan: p, set } = useUi.getState();
-  const nz = clampZoom(z * factor);
+  const nz = clampZoom(target);
   const cx = v.clientWidth / 2;
   const cy = v.clientHeight / 2;
   set({ zoom: nz, pan: { x: cx - ((cx - p.x) * nz) / z, y: cy - ((cy - p.y) * nz) / z } });

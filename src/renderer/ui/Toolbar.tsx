@@ -11,9 +11,8 @@ import {
   IconSun,
   IconUndo,
 } from './icons';
+import { isMac, mod } from './platform';
 import { useUi } from './uiStore';
-
-const isMac = navigator.userAgent.includes('Mac');
 
 /** The app icon's glyph without its tile: a chalk box, a snapped line, a lavender box. */
 function BrandMark() {
@@ -40,7 +39,6 @@ function BrandMark() {
     </svg>
   );
 }
-const mod = isMac ? '⌘' : 'Ctrl+';
 
 /** A button that opens a dropdown; closes on outside click or Escape. */
 function Menu({

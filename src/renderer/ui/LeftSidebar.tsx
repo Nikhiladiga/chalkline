@@ -11,6 +11,7 @@ export function LeftSidebar() {
       <div className="pane-head" hidden={!open}>
         <div
           className="seg editor-tabs"
+          data-active={mode === 'code' ? 1 : 0}
           role="tablist"
           aria-label="Left editor"
           onKeyDown={(e) => {
@@ -32,7 +33,6 @@ export function LeftSidebar() {
               aria-selected={mode === tab}
               aria-controls={`editor-${tab}`}
               tabIndex={mode === tab ? 0 : -1}
-              className={mode === tab ? 'on' : ''}
               onClick={() => useUi.getState().set({ leftMode: tab })}
             >
               {tab === 'icons' ? 'Icons' : 'Code'}

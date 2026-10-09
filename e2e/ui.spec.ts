@@ -69,3 +69,15 @@ test('reduced motion and test mode zero every duration', async () => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await dur()).toBe('0ms');
 });
+
+test('controls: disabled primary is solid, tabs slide, zoom resets to 100%', async () => {
+  const page = await open();
+  const run = page.getByTestId('ai-run');
+  await expect(run).toBeDisabled();
+  expect(await run.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+  await page.getByRole('tab', { name: 'Code', exact: true }).click();
+  await expect(page.locator('.editor-tabs')).toHaveAttribute('data-active', '1');
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.getByRole('button', { name: 'Reset zoom to 100%' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__dg.ui.getState().zoom)).toBe(1);
+});

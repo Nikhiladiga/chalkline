@@ -191,10 +191,10 @@ export function CodePane({ active = true }: { active?: boolean }) {
     <>
       {codeDraft !== null && (
         <div className="draft-bar">
-          <span style={{ flex: 1 }}>Code draft. Fix errors before saving, or discard it.</span>
+          <span className="grow">Code draft. Fix errors before saving, or discard it.</span>
           <button
             type="button"
-            className="btn secondary"
+            className="btn"
             onClick={() => {
               useUi.getState().set({ draft: null });
               useDoc.getState().discardCodeDraft();

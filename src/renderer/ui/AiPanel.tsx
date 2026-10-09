@@ -10,6 +10,8 @@ import { applyTheme } from '../engine/theme';
 import type { Doc } from '../engine/types';
 import { ipcMessage } from './actions';
 import { CodeFolder } from './CodeFolder';
+import { IconRefresh } from './icons';
+import { mod } from './platform';
 import { requestFit, useUi } from './uiStore';
 
 type Outcome = (AiResult & { mode: 'generate' | 'edit' }) | null;
@@ -235,14 +237,11 @@ export function AiPanel() {
 
   return (
     <div className="section" data-testid="ai-panel">
-      <div className="row" style={{ marginBottom: 12 }}>
-        <span className="section-title" style={{ margin: 0, flex: 1 }}>
-          AI diagram
-        </span>
-        <div className="seg" role="tablist">
+      <div className="section-head">
+        <span className="section-title">AI</span>
+        <div className="seg" role="tablist" aria-label="AI mode" data-active={mode === 'edit' ? 1 : 0}>
           <button
             type="button"
-            className={mode === 'generate' ? 'on' : ''}
             onClick={() => setMode('generate')}
             role="tab"
             aria-selected={mode === 'generate'}
@@ -251,7 +250,6 @@ export function AiPanel() {
           </button>
           <button
             type="button"
-            className={mode === 'edit' ? 'on' : ''}
             onClick={() => setMode('edit')}
             role="tab"
             aria-selected={mode === 'edit'}
@@ -287,7 +285,7 @@ export function AiPanel() {
         />
       )}
       <textarea
-        className="textarea"
+        className="textarea prompt"
         data-testid="ai-prompt"
         placeholder={
           source === 'folder'
@@ -306,12 +304,12 @@ export function AiPanel() {
         }}
       />
       {mode === 'edit' && (
-        <label className="check" style={{ marginTop: 8 }}>
+        <label className="check">
           <input type="checkbox" checked={allowMove} onChange={(e) => setAllowMove(e.target.checked)} />
           Allow AI to move existing elements
         </label>
       )}
-      <div className="row" style={{ marginTop: 10 }}>
+      <div className="ai-actions">
         <select
           className="select"
           aria-label="Model"
@@ -320,7 +318,6 @@ export function AiPanel() {
           onChange={async (e) =>
             setSettings(await window.api.invoke('settings:set', { model: e.target.value }))
           }
-          style={{ flex: 1, minWidth: 0 }}
         >
           {!models.includes(model) && <option value={model}>{model || 'No model'}</option>}
           {models.map((m) => (
@@ -331,12 +328,12 @@ export function AiPanel() {
         </select>
         <button
           type="button"
-          className="btn secondary"
+          className="btn icon secondary"
           aria-label="Refresh models"
           disabled={loadingModels || Boolean(running)}
           onClick={() => void refresh()}
         >
-          {loadingModels ? 'Loading…' : 'Refresh'}
+          {loadingModels ? <span className="spinner" /> : <IconRefresh />}
         </button>
         {running ? (
           <button type="button" className="btn secondary" onClick={stop}>
@@ -351,6 +348,9 @@ export function AiPanel() {
             disabled={source === 'folder' ? !project : !prompt.trim()}
           >
             {mode === 'edit' ? 'Apply' : 'Generate'}
+            <span className="kbd" aria-hidden="true">
+              {mod}↵
+            </span>
           </button>
         )}
       </div>
@@ -372,7 +372,7 @@ export function AiPanel() {
         </div>
       )}
       {outcome && !running && (
-        <div className={`note${outcome.ok ? '' : ' bad'}`} data-testid="ai-outcome">
+        <div className={`note ${outcome.ok ? 'ok' : 'bad'}`} data-testid="ai-outcome">
           {outcome.ok ? (
             <>
               {outcome.mode === 'edit'
@@ -390,7 +390,7 @@ export function AiPanel() {
                   ))}
                 </ul>
               )}
-              <div className="row" style={{ marginTop: 8 }}>
+              <div className="note-actions">
                 {aiDoc && docNow === aiDoc && (
                   <button type="button" className="btn secondary" onClick={() => useDoc.getState().undo()}>
                     Undo AI change
