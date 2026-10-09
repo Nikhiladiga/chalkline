@@ -1,4 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type ElectronApplication, expect, type Page, test } from '@playwright/test';
@@ -133,4 +135,100 @@ test('a long file name keeps the unsaved dot visible', async () => {
   const d = (await dot.boundingBox())!;
   const f = (await name.boundingBox())!;
   expect(d.x + d.width).toBeLessThanOrEqual(f.x + f.width + 0.5);
+});
+
+/** Mock OpenAI-compatible LLM that answers after 1.5 s, so a run is still going when the test acts. */
+async function slowLlm(): Promise<{ url: string; close: () => void }> {
+  const server = createServer((req, res) => {
+    if (req.url?.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'mock' }] }));
+    req.resume();
+    req.on('end', () => {
+      const text = JSON.stringify({
+        ...DOC,
+        entities: [...DOC.entities, { tag: 'Shape', id: 'db', x: 560, y: 40, texts: [{ text: 'DB' }] }],
+      });
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`);
+      }, 1500);
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
+    close: () => server.close(),
+  };
+}
+
+test('collapsing and expanding the left pane keeps the diagram still', async () => {
+  const page = await open();
+  const hit = page.locator('.hit[data-id="web"]');
+  const x0 = (await hit.boundingBox())!.x;
+  await page.getByTestId('toggle-left').click();
+  await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(0);
+  await expect.poll(async () => Math.abs((await hit.boundingBox())!.x - x0)).toBeLessThan(1);
+  await page.getByTestId('toggle-left').click();
+  await expect(page.locator('.pane.left .pane-body:visible')).toHaveCount(1);
+  await expect.poll(async () => Math.abs((await hit.boundingBox())!.x - x0)).toBeLessThan(1);
+});
+
+test('collapsing the details pane keeps the AI prompt', async () => {
+  const page = await open();
+  await page.getByTestId('ai-prompt').fill('keep this prompt');
+  await page.getByTestId('toggle-right').click();
+  await expect(page.getByTestId('ai-prompt')).toBeHidden();
+  await page.getByTestId('toggle-right').click();
+  await expect(page.getByTestId('ai-prompt')).toHaveValue('keep this prompt');
+});
+
+test('selecting an element leaves the AI composer where it was', async () => {
+  const page = await open();
+  const prompt = page.getByTestId('ai-prompt');
+  const y0 = (await prompt.boundingBox())!.y;
+  await page.locator('.hit[data-id="api"]').click();
+  await expect(page.getByTestId('inspector')).toBeVisible();
+  const box = (await prompt.boundingBox())!;
+  expect(Math.abs(box.y - y0)).toBeLessThan(1);
+  expect(box.y + box.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
+});
+
+// Review Focus 3
+test('at 900×600 Generate stays visible with an element selected', async () => {
+  const page = await open();
+  await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(900, 600));
+  await expect.poll(() => page.evaluate(() => innerHeight)).toBe(600);
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().select({ entities: ['api'], connections: [] }),
+  );
+  await expect(page.getByTestId('inspector')).toBeVisible();
+  const run = page.getByTestId('ai-run');
+  await expect(run).toBeVisible();
+  const inside = await run.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const c = el.closest('.composer')!.getBoundingClientRect();
+    return r.top >= c.top && r.bottom <= c.bottom && r.bottom <= innerHeight;
+  });
+  expect(inside).toBe(true);
+});
+
+// Review Focus 2
+test('an AI run survives collapsing the details pane', async () => {
+  const llm = await slowLlm();
+  try {
+    const page = await open({}, { DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    await page.getByTestId('ai-prompt').fill('add a database');
+    await page.getByTestId('ai-run').click();
+    const stopButton = page.getByRole('button', { name: 'Stop', exact: true });
+    await expect(stopButton).toBeVisible();
+    await page.getByTestId('toggle-right').click();
+    await page.getByTestId('toggle-right').click();
+    await expect(stopButton).toBeVisible();
+    await expect(page.getByTestId('ai-outcome')).toContainText('Diagram updated', { timeout: 15_000 });
+    const ids = await page.evaluate(() =>
+      (window as any).__dg.doc.getState().doc.entities.map((e: any) => e.id),
+    );
+    expect(ids).toContain('db');
+  } finally {
+    llm.close();
+  }
 });

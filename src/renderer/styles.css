@@ -475,16 +475,34 @@ body {
 
 /* ---------- main grid ---------- */
 .workspace {
+  --code-open: 360px;
+  --ai-open: 340px;
+  --rail: 36px;
+  --code-w: var(--code-open);
+  --ai-w: var(--ai-open);
   position: relative;
   display: grid;
   min-height: 0;
-  grid-template-columns: var(--code-w, 360px) 1fr var(--ai-w, 340px);
+  grid-template-columns: var(--code-w) minmax(0, 1fr) var(--ai-w);
+  transition: grid-template-columns var(--dur-base) var(--ease-in-out);
 }
 .workspace.no-code {
-  --code-w: 36px;
+  --code-w: var(--rail);
 }
 .workspace.no-ai {
-  --ai-w: 36px;
+  --ai-w: var(--rail);
+}
+/* Pane content keeps its open width and is clipped by the column, so it slides instead of reflowing. */
+.pane.left > :not(.rail) {
+  min-width: calc(var(--code-open) - 1px);
+}
+.pane.right > :not(.rail) {
+  min-width: calc(var(--ai-open) - 1px);
+}
+@starting-style {
+  .rail {
+    opacity: 0;
+  }
 }
 .pane-head .spacer {
   flex: 1;
@@ -504,7 +522,8 @@ body {
   cursor: pointer;
   transition:
     background-color var(--dur-instant) linear,
-    color var(--dur-instant) linear;
+    color var(--dur-instant) linear,
+    opacity var(--dur-base) var(--ease-out);
 }
 .rail:hover {
   background: var(--s2);
@@ -553,7 +572,7 @@ body {
   font-weight: 400;
 }
 .pane-head[hidden],
-.left-editor[hidden] {
+.pane-body[hidden] {
   display: none;
 }
 .editor-tabs {
@@ -661,6 +680,69 @@ body {
   min-height: 0;
   overflow: auto;
 }
+.details:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.details-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.details-hint {
+  margin: 0;
+  padding: var(--sp-4);
+  color: var(--ink-subtle);
+  font-size: var(--fs-sm);
+}
+/* Pinned AI composer: selection never moves it; at least 320px so Generate stays reachable at 600px tall. */
+.composer {
+  flex: none;
+  max-height: max(55%, 320px);
+  overflow: auto;
+  border-top: 1px solid var(--hairline);
+}
+.composer > .section {
+  border-bottom: 0;
+}
+/* The chalk line: a 2px --line bar along the composer's top edge while the AI runs. */
+.progress {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 2px;
+  margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) calc(var(--sp-4) - 2px);
+  overflow: hidden;
+}
+.progress[data-running]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--line);
+  animation: chalk-line 1.4s var(--ease-in-out) infinite;
+}
+@keyframes chalk-line {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress[data-running]::before {
+    width: 100%;
+    opacity: 0.6;
+    animation: none;
+  }
+}
+.app.test-mode .progress[data-running]::before {
+  width: 100%;
+  opacity: 0.6;
+  animation: none;
+}
 
 /* ---------- code pane ---------- */
 .code-host {
@@ -717,9 +799,15 @@ body {
   background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.2px);
   background-size: 20px 20px;
   outline: none;
+  margin: var(--sp-2) var(--sp-2) var(--sp-2) 0;
+  border-radius: var(--r-lg);
+  box-shadow: var(--e1);
+  transition: box-shadow var(--dur-fast) var(--ease-out);
 }
 .canvas.icon-drop-active {
-  box-shadow: inset 0 0 0 2px var(--line);
+  box-shadow:
+    var(--e1),
+    inset 0 0 0 2px var(--line);
 }
 .canvas.panning,
 .canvas.space {
@@ -733,6 +821,13 @@ body {
   left: 0;
   top: 0;
   transform-origin: 0 0;
+}
+/* Programmatic view changes only (Fit, zoom buttons, Shift+1, pane toggle); wheel and drag stay 1:1. */
+.stage[data-ease="view"] {
+  transition: transform var(--dur-slow) var(--ease-in-out);
+}
+.stage[data-ease="pane"] {
+  transition: transform var(--dur-base) var(--ease-in-out);
 }
 /* The diagram sheet: the one bright surface in the app. */
 .sheet {
@@ -1485,6 +1580,19 @@ body {
 }
 .code-folder-details summary {
   cursor: pointer;
+}
+.code-folder-details {
+  interpolate-size: allow-keywords;
+}
+.code-folder-details::details-content {
+  height: 0;
+  overflow: clip;
+  transition:
+    height var(--dur-base) var(--ease-out),
+    content-visibility var(--dur-base) allow-discrete;
+}
+.code-folder-details[open]::details-content {
+  height: auto;
 }
 .code-folder-details ul {
   max-height: 180px;

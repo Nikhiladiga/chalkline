@@ -19,7 +19,7 @@ import { insertIconAt } from './actions';
 import { ConnectionPorts } from './ConnectionPorts';
 import { ICON_MIME } from './iconCatalog';
 import { IconMinus, IconPlus } from './icons';
-import { requestFit, useUi } from './uiStore';
+import { easeView, requestFit, useUi } from './uiStore';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -93,6 +93,7 @@ export function Canvas() {
   const errors = useUi((s) => s.errors);
   const fitRequest = useUi((s) => s.fitRequest);
   const theme = useUi((s) => s.theme);
+  const ease = useUi((s) => s.ease);
   const view = useRef<HTMLDivElement>(null);
   const sceneHost = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
@@ -149,6 +150,7 @@ export function Canvas() {
   useEffect(() => {
     const v = view.current!;
     const onWheel = (e: WheelEvent) => {
+      if (useUi.getState().ease) useUi.setState({ ease: null });
       e.preventDefault();
       const { zoom: z, pan: p, set } = useUi.getState();
       if (e.ctrlKey || e.metaKey) {
@@ -482,6 +484,9 @@ export function Canvas() {
   return (
     <div
       ref={view}
+      onPointerDownCapture={() => {
+        if (useUi.getState().ease) useUi.setState({ ease: null }); // a gesture takes over 1:1
+      }}
       className={`canvas ${theme}${space.current ? ' space' : ''}${g?.kind === 'pan' ? ' panning' : ''}${dropActive ? ' icon-drop-active' : ''}`}
       onPointerDown={onBackgroundDown}
       onDragOver={(e) => {
@@ -502,7 +507,11 @@ export function Canvas() {
       }}
       data-testid="canvas"
     >
-      <div className="stage" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+      <div
+        className="stage"
+        data-ease={ease ?? undefined}
+        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+      >
         {render && doc.entities.length > 0 && (
           <div
             className={`sheet ${theme}`}
@@ -750,5 +759,6 @@ function zoomTo(target: number, v: HTMLDivElement | null): void {
   const nz = clampZoom(target);
   const cx = v.clientWidth / 2;
   const cy = v.clientHeight / 2;
+  easeView('view');
   set({ zoom: nz, pan: { x: cx - ((cx - p.x) * nz) / z, y: cy - ((cy - p.y) * nz) / z } });
 }

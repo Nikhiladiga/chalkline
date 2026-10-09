@@ -35,6 +35,8 @@ interface UiState {
   /** Bump to re-render the current document. */
   renderTick: number;
   theme: Theme;
+  /** Stage transform eases for this kind of programmatic view change; null for 1:1 wheel/drag. */
+  ease: 'pane' | 'view' | null;
   set(patch: Partial<UiState>): void;
 }
 
@@ -54,10 +56,23 @@ export const useUi = create<UiState>((set) => ({
   fitRequest: 0,
   renderTick: 0,
   theme: 'dark',
+  ease: null,
   set: (patch) => set(patch),
 }));
 
-export const requestFit = () => useUi.setState((s) => ({ fitRequest: s.fitRequest + 1 }));
+let easeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Animate the next pan/zoom change. Use only for buttons, shortcuts and pane toggles, never wheel or drag. */
+export function easeView(kind: 'pane' | 'view'): void {
+  clearTimeout(easeTimer);
+  useUi.setState({ ease: kind });
+  // ponytail: fixed 320 ms ≥ --dur-slow; read the token if durations change.
+  easeTimer = setTimeout(() => useUi.setState({ ease: null }), 320);
+}
+
+export const requestFit = () => {
+  easeView('view');
+  useUi.setState((s) => ({ fitRequest: s.fitRequest + 1 }));
+};
 export const toast = (msg: string) => {
   useUi.setState({ toast: msg });
   setTimeout(() => useUi.getState().toast === msg && useUi.setState({ toast: null }), 3500);

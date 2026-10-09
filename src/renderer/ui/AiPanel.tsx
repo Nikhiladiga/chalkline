@@ -237,6 +237,7 @@ export function AiPanel() {
 
   return (
     <div className="section" data-testid="ai-panel">
+      <div className="progress" data-running={running ? '' : undefined} aria-hidden="true" />
       <div className="section-head">
         <span className="section-title">AI</span>
         <div className="seg" role="tablist" aria-label="AI mode" data-active={mode === 'edit' ? 1 : 0}>

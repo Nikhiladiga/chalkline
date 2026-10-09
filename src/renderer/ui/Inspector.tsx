@@ -173,7 +173,7 @@ export function Inspector() {
   }, [tag]);
 
   const count = selection.entities.length + selection.connections.length;
-  if (!count) return null;
+  if (!count) return <p className="details-hint">Select an element to edit it.</p>;
   if (!entity && !conn) {
     return (
       <div className="section">

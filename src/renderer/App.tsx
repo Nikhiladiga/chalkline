@@ -4,7 +4,6 @@ import * as engine from './engine/engine';
 import { render } from './engine/engine';
 import { applyTheme } from './engine/theme';
 import { checkLayout } from './layout/quality';
-import { AiPanel } from './ui/AiPanel';
 import * as actions from './ui/actions';
 import {
   deleteSelection,
@@ -18,10 +17,9 @@ import {
   save,
 } from './ui/actions';
 import { Canvas } from './ui/Canvas';
+import { DetailsPane } from './ui/DetailsPane';
 import { IconPicker } from './ui/IconPicker';
-import { Inspector } from './ui/Inspector';
 import { LeftSidebar } from './ui/LeftSidebar';
-import { PaneToggle } from './ui/PaneToggle';
 import { Settings } from './ui/Settings';
 import { Toolbar } from './ui/Toolbar';
 import { requestFit, useUi } from './ui/uiStore';
@@ -152,23 +150,7 @@ export function App() {
       <main className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}>
         <LeftSidebar />
         <Canvas />
-        <aside className="pane right" aria-label="Inspector and AI">
-          {showAi ? (
-            <>
-              <div className="pane-head">
-                Details
-                <span className="spacer" />
-                <PaneToggle side="right" open />
-              </div>
-              <div className="pane-body">
-                <Inspector />
-                <AiPanel />
-              </div>
-            </>
-          ) : (
-            <PaneToggle side="right" open={false} />
-          )}
-        </aside>
+        <DetailsPane />
         {toastMsg && (
           <div className="toast" role="status">
             {toastMsg}
