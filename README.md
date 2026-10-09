@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="#download">Download</a> ·
   <a href="#features">Features</a> ·
   <a href="#supported-harnesses-and-providers">Harnesses</a> ·
   <a href="#getting-started">Get started</a> ·
@@ -16,7 +17,7 @@
   <a href="https://github.com/Nikhiladiga/chalkline/issues">Report an issue</a>
 </p>
 
-![Chalkline desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel](docs/assets/chalkline-demo.png)
+![Chalkline desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel](.github/assets/chalkline-demo.png)
 
 *AWS serverless demo: API Gateway invokes Lambda, which connects to DynamoDB and S3. The icon palette, canvas and AI panel share one workspace.*
 
@@ -24,7 +25,16 @@ Chalkline is a desktop application for creating and editing architecture diagram
 
 Use an installed Codex or Claude Code CLI with its existing login, a local model through LM Studio, or an OpenAI-compatible API. You can also draw manually without configuring AI.
 
-**Status:** version 0.1.0, macOS beta. Run from source today. Public downloads and Homebrew distribution are in preparation; Windows and Linux packaging targets are configured but still need native release testing. The current app uses Electron.
+**Status:** version 0.1.0 beta. Download macOS (Apple Silicon and Intel) and Windows builds from [Releases](https://github.com/Nikhiladiga/chalkline/releases/latest). Website: https://nikhiladiga.github.io/chalkline
+
+## Download
+
+Get the latest macOS (Apple Silicon or Intel) or Windows build from [Releases](https://github.com/Nikhiladiga/chalkline/releases/latest).
+
+Builds are not code-signed yet:
+
+- **macOS:** open the app once, then go to System Settings → Privacy & Security and choose **Open Anyway**.
+- **Windows:** in SmartScreen choose **More info** → **Run anyway**.
 
 ## Features
 
@@ -90,7 +100,7 @@ The scanner reads source, manifests and configuration without executing the proj
 
 Use **Rescan** to refresh evidence or **Edit → Apply** to update the diagram after code changes. Existing positions are preserved by default. Select the source folder again after reopening the app. There is no background watcher today.
 
-Large repositories use bounded excerpts, so scan coverage and model-authored source references should be reviewed. See the [code-folder guide](docs/code-folder-architecture.md) for limits and exclusions.
+Large repositories use bounded excerpts, so scan coverage and model-authored source references should be reviewed. Oversized files and excluded paths are skipped, and the review step shows what was scanned.
 
 ### Draw and refine manually
 
@@ -130,7 +140,7 @@ These are proposed priorities, not features available in the current release. Sc
 - [ ] Add alignment guides, grid snapping and more control over connector routing.
 - [ ] Produce native vector SVG exports for graphics tools that do not support `foreignObject`.
 
-Suggest features or report problems through [GitHub issues](https://github.com/Nikhiladiga/chalkline/issues). The [Tauri assessment](docs/tauri-feasibility.md) explains the migration work already investigated.
+Suggest features or report problems through [GitHub issues](https://github.com/Nikhiladiga/chalkline/issues).
 
 ## Development
 
@@ -144,7 +154,7 @@ Suggest features or report problems through [GitHub issues](https://github.com/N
 | `pnpm test:e2e` | Build and run the Playwright Electron suite. |
 | `pnpm eval:s3` | Run the S3 diagram evaluation. |
 
-Live harness acceptance tests are opt-in and use the selected CLI's login and quota. See [code-folder generation](docs/code-folder-architecture.md) and [the runtime-evidence regression](docs/code-folder-imports-fix.md). Tests against your own code send selected excerpts to the provider.
+Live harness acceptance tests are opt-in and use the selected CLI's login and quota. Tests against your own code send selected excerpts to the provider.
 
 The app uses Electron, React, TypeScript, Zustand, CodeMirror, ELK and the Eraser Diagrams packages.
 
@@ -156,23 +166,18 @@ The app uses Electron, React, TypeScript, Zustand, CodeMirror, ELK and the Erase
 | `pnpm dist:win` | Windows NSIS installer target. |
 | `pnpm dist:linux` | Linux AppImage target. |
 | `pnpm release:mac` | Signed/notarized macOS release workflow, with release credentials configured. |
-| `pnpm brew:prepare` | Prepare a Homebrew cask from a release archive; see the release guide for arguments. |
+| `pnpm brew:prepare` | Prepare a Homebrew cask from a release archive; see CONTRIBUTING.md for arguments. |
 
 Artifacts are written to `dist/`. A local ad hoc macOS build is not a notarized public release. Windows, Linux and Intel macOS need platform-specific acceptance before support is advertised. The development `dev`/`start` commands use a POSIX `env` wrapper; Windows development may require a compatible shell or launching electron-vite directly with `ELECTRON_RUN_AS_NODE` unset.
 
-No public binary release or Homebrew install command is available yet. Follow [Homebrew release preparation](docs/homebrew-release.md) for signing, notarization, release archives, checksums and a personal tap.
+Every merge to `main` publishes a GitHub Release with macOS (arm64, x64) and Windows builds; see [Releases](https://github.com/Nikhiladiga/chalkline/releases). These builds are unsigned. For signing, notarization and Homebrew cask preparation, see [CONTRIBUTING.md](CONTRIBUTING.md#signed-macos-release).
 
-## Project documentation
+## Contributing
 
-- [Code-folder architecture generation](docs/code-folder-architecture.md)
-- [Runtime evidence and architecture quality](docs/code-folder-imports-fix.md)
-- [Production readiness review](docs/production-readiness-2026-10-07.md)
-- [Homebrew and macOS release preparation](docs/homebrew-release.md)
-- [Tauri feasibility](docs/tauri-feasibility.md)
-- [Contributor and agent guidance](AGENT.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 ## License and credits
 
-MIT
+MIT; see [LICENSE](LICENSE).
 
-The rendering engine uses the MIT-licensed **Eraser Diagrams** packages. The [upstream license](third_party/eraser-diagrams/LICENSE) and font notices are included in packaged resources. Service icons and logos remain their respective owners' marks.
+The rendering engine uses the MIT-licensed **Eraser Diagrams** packages; notices are in `third_party/eraser-diagrams`. The [upstream license](third_party/eraser-diagrams/LICENSE) and font notices are included in packaged resources. Service icons and logos remain their respective owners' marks.
