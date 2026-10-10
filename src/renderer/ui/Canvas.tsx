@@ -117,7 +117,7 @@ export function Canvas() {
   const settle = useRef<{
     render: RenderInfo | null;
     errors: unknown;
-    pan: { x: number; y: number } | null;
+    shift: { x: number; y: number } | null;
   } | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -140,6 +140,12 @@ export function Canvas() {
       zoom: useUi.getState().zoom,
     };
   };
+  /** Compensate the document's origin shift on the CURRENT view, so a scroll or zoom meanwhile is kept. */
+  const applyShift = (d: { x: number; y: number } | null) => {
+    if (!d) return;
+    const { pan: p, zoom: z, set } = useUi.getState();
+    set({ pan: { x: p.x - d.x * z, y: p.y - d.y * z } });
+  };
   const endPreview = () => {
     clearPreview(useUi.getState().render?.scene ?? null, overlay.current, lines.current);
     setDragging(false);
@@ -152,7 +158,7 @@ export function Canvas() {
     const s = settle.current;
     if (s && (render !== s.render || errors !== s.errors)) {
       settle.current = null;
-      if (s.pan) useUi.getState().set({ pan: s.pan });
+      applyShift(s.shift);
       endPreview();
     }
     const g = gesture.current;
@@ -272,9 +278,8 @@ export function Canvas() {
     settle.current = {
       render: ui.render,
       errors: ui.errors,
-      // A drop past x/y = 0 shifts the whole document; pan by the same amount once its render lands.
-      pan:
-        offset.x || offset.y ? { x: ui.pan.x - offset.x * ui.zoom, y: ui.pan.y - offset.y * ui.zoom } : null,
+      // A drop past x/y = 0 shifts the whole document; pan by the same amount (in diagram units) once its render lands.
+      shift: offset.x || offset.y ? offset : null,
     };
     docApi(g.tabId).commit(fitContainers(d, boxes));
   };
@@ -396,7 +401,7 @@ export function Canvas() {
     const blur = () => {
       const s = settle.current;
       settle.current = null;
-      if (s?.pan) useUi.getState().set({ pan: s.pan });
+      if (s) applyShift(s.shift);
       if (s) endPreview();
       cancel();
     };

@@ -163,3 +163,76 @@ test('a drop past the origin holds still while its render is in flight', async (
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a drop past the origin keeps a scroll and zoom made while its render is in flight', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dg-group-view-'));
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ hostedIcons: false }));
+  const { app, page } = await launch({ DG_USER_DATA: dir, DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1' });
+  try {
+    await page.waitForFunction(() => (window as any).__dg);
+    const doc = {
+      entities: [
+        { tag: 'Group', id: 'vpc', x: 40, y: 40, width: 420, height: 300, title: { text: 'VPC' } },
+        {
+          tag: 'Shape',
+          id: 'api',
+          x: 70,
+          y: 140,
+          width: 90,
+          height: 60,
+          containerId: 'vpc',
+          texts: [{ text: 'API' }],
+        },
+      ],
+      connections: [],
+    };
+    await page.evaluate((d) => {
+      const dg = (window as any).__dg;
+      dg.actions.loadText(JSON.stringify(d), null);
+      dg.ui.getState().set({ zoom: 1, pan: { x: 260, y: 120 } });
+    }, doc);
+    const shape = page.locator('.hit[data-id="api"]');
+    const group = page.locator('.hit[data-id="vpc"]');
+    await expect(shape).toBeVisible();
+    const before = (await shape.boundingBox())!;
+    const groupBefore = (await group.boundingBox())!;
+    // Hold every engine render until released, like a slow render of a big diagram.
+    await page.evaluate(() => {
+      const w = window as any;
+      const run = w.__eraser.run;
+      w.__hold = new Promise((r) => {
+        w.__release = r;
+      });
+      w.__eraser.run = async (...a: unknown[]) => {
+        await w.__hold;
+        return run.apply(w.__eraser, a);
+      };
+    });
+    await page.keyboard.down(snapOff);
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(before.x + before.width / 2 - 180, before.y + before.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up(snapOff);
+    // The drop committed (the document shifted right to stay ≥ 0) but its render is held: nothing may jump.
+    // The user scrolls and zooms while the drop's render is still pending.
+    await page.mouse.wheel(0, 70);
+    await page.evaluate(() => (window as any).__dg.ui.getState().set({ zoom: 1.5 }));
+    await expect.poll(async () => (await shape.boundingBox())!.width).toBeGreaterThan(before.width * 1.4);
+    const held = (await shape.boundingBox())!;
+    const heldView = await page.evaluate(() => (window as any).__dg.ui.getState().pan);
+    await page.evaluate(() => (window as any).__release());
+    await page.waitForFunction(() => !document.querySelector('[data-preview]'));
+    // Only the origin-shift compensation is applied: the shape stays where the user left it, and the
+    // view is not snapped back to its position at drop time.
+    const after = (await shape.boundingBox())!;
+    expect(Math.abs(after.x - held.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - held.y)).toBeLessThan(2);
+    const view = await page.evaluate(() => (window as any).__dg.ui.getState());
+    expect(view.zoom).toBe(1.5);
+    expect(Math.abs(view.pan.y - heldView.y)).toBeLessThan(1); // the 70 px scroll survives
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
