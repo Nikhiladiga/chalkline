@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { buildMessages, systemPrompt } from './prompt';
 
@@ -66,4 +67,17 @@ it('leaves excerpt-based folder messages unchanged when deep is off', () => {
   const build = (deep?: boolean) =>
     buildMessages('generate', 'Map it', empty, ['server'], () => ({}), 'src/a.ts:1 x', deep);
   expect(build(false)).toEqual(build());
+});
+
+it('deep prompt: inventory first, real turn budget, element definition and fewer-is-fine escape', () => {
+  const system = buildMessages('generate', 'x', empty, [], () => ({}), undefined, true)[0]!.content;
+  expect(system).toMatch(/Inventory first/);
+  expect(system).toMatch(/list every deployable unit/);
+  expect(system).toMatch(/fewer when the repo genuinely has fewer/);
+  expect(system).toMatch(/never pad and never invent/);
+  expect(system).toMatch(/never individual functions, classes or files/);
+  expect(system).toMatch(/outside the service Groups/);
+  const turns = /MAX_TURNS = (\d+)/.exec(readFileSync('src/main/claudeCli.ts', 'utf8'))![1];
+  expect(system).toContain(`stops after ${turns} turns`);
+  expect(system).toContain('returns NO diagram');
 });
