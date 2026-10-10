@@ -7,6 +7,7 @@ import {
   dragEntities,
   getPrimaryText,
   pasteElements,
+  reconnect,
   reparent,
   resizeEntity,
   selectionRoots,
@@ -16,7 +17,7 @@ import {
   withDescendants,
 } from '../doc/ops';
 import { docApi, tabState, useDoc, useTabs } from '../doc/store';
-import { nearestPort, type Port, portPoint } from '../engine/ports';
+import { isPort, nearestPort, type Port, portPoint } from '../engine/ports';
 import { groundOf } from '../engine/theme';
 import { type Box, type Doc, SHEET_PAD } from '../engine/types';
 import { insertIconAt } from './actions';
@@ -74,7 +75,25 @@ type Gesture =
       target: { id: string; port: Port } | null;
       keyboard: boolean;
     }
+  | {
+      kind: 'reconnect';
+      tabId: string;
+      /** The connection's index in the document. */
+      index: number;
+      /** The end being moved, and the element it was on. */
+      end: 'from' | 'to';
+      was: string;
+      /** The element at the end that stays, and that end's point. */
+      other: string;
+      anchor: { x: number; y: number };
+      x: number;
+      y: number;
+      /** `pinned`: the pointer is on one of the target's ports, so this end snaps to it. */
+      target: { id: string; port: Port; pinned: boolean } | null;
+      keyboard: boolean;
+    }
   | { kind: 'marquee'; x0: number; y0: number; x: number; y: number; base: string[] };
+type ReconnectGesture = Extract<Gesture, { kind: 'reconnect' }>;
 type MoveGesture = Extract<Gesture, { kind: 'move' }>;
 /** The connection label editor: bound to its tab and to the connection's ends when it opened. */
 type LabelEdit = { tabId: string; index: number; from: string; to: string; value: string };
@@ -367,10 +386,20 @@ export function Canvas() {
         g.width = Math.max(8, Math.round(g.box0.width + (e.clientX - g.sx) / z));
         g.height = Math.max(8, Math.round(g.box0.height + (e.clientY - g.sy) / z));
         setSizing({ id: g.id, box: { ...g.box0, width: g.width, height: g.height } });
-      } else if (g.kind === 'link' || g.kind === 'marquee') {
+      } else if (g.kind === 'link' || g.kind === 'marquee' || g.kind === 'reconnect') {
         const p = toDoc(e.clientX, e.clientY);
         g.x = p.x;
         g.y = p.y;
+        if (g.kind === 'reconnect') {
+          const t = connectionTarget(p, g.other);
+          const box = t ? r?.boxes[t.id] : undefined;
+          const at = t && box ? portPoint(box, t.port) : null;
+          g.target = t && at ? { ...t, pinned: Math.hypot(at.x - p.x, at.y - p.y) <= 12 / z } : null;
+          if (g.target?.pinned && at) {
+            g.x = at.x;
+            g.y = at.y;
+          }
+        }
         if (g.kind === 'link') {
           g.target = connectionTarget(p, g.from);
           if (g.target && r?.boxes[g.target.id]) {
@@ -402,7 +431,7 @@ export function Canvas() {
     };
     const up = (e: PointerEvent) => {
       const g = gesture.current;
-      if (g?.kind === 'link' && g.keyboard) return;
+      if ((g?.kind === 'link' || g?.kind === 'reconnect') && g.keyboard) return;
       gesture.current = null;
       setGuides([]);
       if (!g) return;
@@ -424,6 +453,8 @@ export function Canvas() {
             store.select({ entities: [], connections: [next.connections.length - 1] });
           }
         }
+      } else if (g.kind === 'reconnect') {
+        finishReconnect(g, g.target);
       }
       force((n) => n + 1);
     };
@@ -550,9 +581,74 @@ export function Canvas() {
     force((n) => n + 1);
   };
 
+  /** Grab one end of connection `index`; with `keyboard`, every icon shows its ports to pick from. */
+  const startReconnect = (index: number, end: 'from' | 'to', keyboard: boolean): boolean => {
+    const r = useUi.getState().render;
+    const c = useDoc.getState().doc.connections[index];
+    const pts = r?.connections[r.connectionIds[index] ?? '']?.points;
+    if (!c || !pts || pts.length < 2) return false;
+    commitText();
+    const [ax, ay] = end === 'from' ? pts.at(-1)! : pts[0]!;
+    const [x, y] = end === 'from' ? pts[0]! : pts.at(-1)!;
+    gesture.current = {
+      kind: 'reconnect',
+      tabId: useTabs.getState().activeId,
+      index,
+      end,
+      was: c[end],
+      other: end === 'from' ? c.to : c.from,
+      anchor: { x: ax, y: ay },
+      x,
+      y,
+      target: null,
+      keyboard,
+    };
+    force((n) => n + 1);
+    return true;
+  };
+
+  /**
+   * Re-attach the moved end. Ports are both-or-neither (precise routing needs both): a port drop pins this
+   * end and, if the other end floats, pins it to its port nearest the new end; a body drop pins this end
+   * only when the other end is pinned. An invalid target, a body drop on the element this end is already
+   * on, or a connection whose ends changed meanwhile changes nothing.
+   */
+  const finishReconnect = (g: ReconnectGesture, target: ReconnectGesture['target']) => {
+    const t = tabState(g.tabId);
+    const c = t?.doc.connections[g.index];
+    const r = useUi.getState().render;
+    const otherEnd = g.end === 'from' ? 'to' : 'from';
+    if (!t || !c || !r || !target || c[otherEnd] !== g.other || c[g.end] !== g.was) return;
+    if (target.id === g.was && !target.pinned) return;
+    const otherPort = c[`${otherEnd}Port`];
+    const box = r.boxes[target.id];
+    const otherBox = r.boxes[g.other];
+    let ports: { fromPort: Port; toPort: Port } | undefined;
+    if ((target.pinned || isPort(otherPort)) && box && otherBox) {
+      const mine = target.port;
+      const theirs = isPort(otherPort) ? otherPort : nearestPort(otherBox, portPoint(box, mine));
+      ports = g.end === 'from' ? { fromPort: mine, toPort: theirs } : { fromPort: theirs, toPort: mine };
+    }
+    const next = reconnect(t.doc, g.index, g.end, target.id, ports);
+    if (next !== t.doc) docApi(g.tabId).commit(next);
+  };
+
+  const onEndDown = (e: React.PointerEvent, index: number, end: 'from' | 'to') => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (startReconnect(index, end, false)) e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
   const onKeyboardLink = (id: string, port: Port) => {
     const g = gesture.current;
     const store = useDoc.getState();
+    if (g?.kind === 'reconnect' && g.keyboard) {
+      if (id !== g.other) finishReconnect(g, { id, port, pinned: true });
+      gesture.current = null;
+      force((n) => n + 1);
+      return;
+    }
     if (g?.kind === 'link' && g.keyboard) {
       const next = connect(store.doc, g.from, id, { fromPort: g.fromPort, toPort: port });
       if (next !== store.doc) store.commit(next);
@@ -578,6 +674,14 @@ export function Canvas() {
   const onPortFocus = (id: string, port: Port) => {
     const g = gesture.current;
     const box = useUi.getState().render?.boxes[id];
+    if (g?.kind === 'reconnect' && g.keyboard && box && id !== g.other) {
+      const p = portPoint(box, port);
+      g.target = { id, port, pinned: true };
+      g.x = p.x;
+      g.y = p.y;
+      force((n) => n + 1);
+      return;
+    }
     if (g?.kind !== 'link' || !g.keyboard || !box || id === g.from) return;
     const p = portPoint(box, port);
     g.target = { id, port };
@@ -639,6 +743,15 @@ export function Canvas() {
   const singleBox = single ? (sizing?.id === single ? sizing.box : render?.boxes[single]) : undefined;
   const singleIcon = doc.entities.find((e) => e.id === single)?.tag === 'Icon';
   const editBox = editing ? render?.boxes[editing.id] : undefined;
+  // A selected connection (alone) shows a handle on each end for reconnecting.
+  const selIndex =
+    selection.connections.length === 1 && !selection.entities.length ? selection.connections[0]! : null;
+  const selPoints =
+    selIndex !== null && render
+      ? render.connections[render.connectionIds[selIndex] ?? '']?.points
+      : undefined;
+  const portTarget =
+    g?.kind === 'link' ? g.target : g?.kind === 'reconnect' && g.target?.pinned ? g.target : null;
   const labelAt =
     labelEdit && render ? render.connections[render.connectionIds[labelEdit.index] ?? '']?.label : undefined;
 
@@ -702,7 +815,7 @@ export function Canvas() {
                 <div
                   key={e.id}
                   data-id={e.id}
-                  className={`hit${container ? ' container' : ''}${selection.entities.includes(e.id) ? ' sel' : ''}${g?.kind === 'link' && g.target?.id === e.id ? ' connection-target' : ''}`}
+                  className={`hit${container ? ' container' : ''}${selection.entities.includes(e.id) ? ' sel' : ''}${(g?.kind === 'link' || g?.kind === 'reconnect') && g.target?.id === e.id ? ' connection-target' : ''}`}
                   style={{ left: b.x, top: b.y, width: b.width, height: b.height }}
                   onPointerDown={(ev) => onEntityDown(ev, e.id)}
                   onPointerEnter={() => setHovered(e.id)}
@@ -792,7 +905,8 @@ export function Canvas() {
                   const visible =
                     hovered === e.id ||
                     selection.entities.includes(e.id) ||
-                    (g?.kind === 'link' && (g.keyboard || g.from === e.id || g.target?.id === e.id));
+                    (g?.kind === 'link' && (g.keyboard || g.from === e.id || g.target?.id === e.id)) ||
+                    (g?.kind === 'reconnect' && (g.keyboard || g.target?.id === e.id));
                   if (!box || !visible) return null;
                   return (
                     <ConnectionPorts
@@ -800,7 +914,7 @@ export function Canvas() {
                       id={e.id}
                       box={box}
                       zoom={zoom}
-                      target={g?.kind === 'link' && g.target?.id === e.id ? g.target.port : undefined}
+                      target={portTarget?.id === e.id ? portTarget.port : undefined}
                       onStart={onLinkDown}
                       onKeyboard={onKeyboardLink}
                       onHover={setHovered}
@@ -832,6 +946,54 @@ export function Canvas() {
                   height: sizing.box.height,
                 }}
               />
+            )}
+            {selIndex !== null &&
+              selPoints &&
+              selPoints.length >= 2 &&
+              !labelEdit &&
+              (['from', 'to'] as const).map((end) => {
+                const [x, y] = end === 'from' ? selPoints[0]! : selPoints.at(-1)!;
+                return (
+                  <button
+                    key={end}
+                    type="button"
+                    className="conn-end"
+                    data-testid={`conn-end-${end}`}
+                    aria-label={
+                      end === 'from'
+                        ? 'Reconnect the start of this connection'
+                        : 'Reconnect the end of this connection'
+                    }
+                    title="Drag to another element or one of its ports"
+                    style={{ left: x, top: y, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
+                    onPointerDown={(ev) => onEndDown(ev, selIndex, end)}
+                    onKeyDown={(ev) => {
+                      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      startReconnect(selIndex, end, true);
+                    }}
+                  />
+                );
+              })}
+            {g?.kind === 'reconnect' && (
+              <svg
+                className="link-svg"
+                data-testid="reconnect-preview"
+                width="1"
+                height="1"
+                aria-hidden="true"
+              >
+                <line
+                  x1={g.anchor.x}
+                  y1={g.anchor.y}
+                  x2={g.x}
+                  y2={g.y}
+                  style={{ stroke: 'var(--line)' }}
+                  strokeWidth={2 / zoom}
+                  strokeDasharray={g.target ? undefined : `${6 / zoom} ${4 / zoom}`}
+                />
+              </svg>
             )}
             {g?.kind === 'marquee' && (
               <div

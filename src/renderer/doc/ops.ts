@@ -225,6 +225,37 @@ export function connect(doc: Doc, from: string, to: string, ports?: { fromPort: 
   return out;
 }
 
+/**
+ * Move one end of connection `index` to entity `id`. Ports are set for both ends (`ports`) or removed from
+ * both; stale routes go, id, label and style stay. Returns `doc` itself for a missing connection or target,
+ * a self-link, no change, or a duplicate as `connect` sees one: the same pair with the same ports, or any
+ * pinning of the pair when the result floats.
+ */
+export function reconnect(
+  doc: Doc,
+  index: number,
+  end: 'from' | 'to',
+  id: string,
+  ports?: { fromPort: Port; toPort: Port },
+): Doc {
+  const c = doc.connections[index];
+  if (!c || !doc.entities.some((e) => e.id === id)) return doc;
+  const next: Connection = { ...structuredClone(c), [end]: id };
+  delete next.fromPort;
+  delete next.toPort;
+  if (ports) Object.assign(next, ports);
+  const same = (o: Connection, floats: boolean) =>
+    o.from === next.from &&
+    o.to === next.to &&
+    (floats || (o.fromPort === next.fromPort && o.toPort === next.toPort));
+  if (next.from === next.to || same(c, false)) return doc;
+  if (doc.connections.some((o, i) => i !== index && same(o, !ports))) return doc;
+  for (const k of ROUTE_KEYS) delete next[k];
+  const out = clone(doc);
+  out.connections[index] = next;
+  return out;
+}
+
 /** Set connection `index`'s label, or remove it for blank text; a stale label box goes too.
  *  Returns `doc` itself when nothing changes. */
 export function setConnectionLabel(doc: Doc, index: number, text: string): Doc {

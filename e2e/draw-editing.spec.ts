@@ -235,3 +235,124 @@ test('an open label edit keeps a change that lands meanwhile and commits to its 
   expect(second).toEqual({ entities: [], connections: [] });
   expect(await past(page)).toBe(0); // the active (new) tab has no history
 });
+
+test('drag a selected line end to another element or port; invalid drops change nothing', async () => {
+  const page = await open();
+  const p = await onLine(page, 0);
+  await page.mouse.click(p.x, p.y);
+  const end = page.getByTestId('conn-end-to');
+  await expect(end).toBeVisible();
+  const dragEnd = async (to: { x: number; y: number }) => {
+    const h = (await end.boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await expect(page.getByTestId('reconnect-preview')).toBeVisible();
+    await page.mouse.up();
+  };
+  const canvas = (await page.locator('.canvas').boundingBox())!;
+  for (const nowhere of [
+    { x: canvas.x + 20, y: canvas.y + canvas.height - 40 },
+    await center(page, 'a'),
+    await center(page, 'b'),
+  ]) {
+    await dragEnd(nowhere); // empty canvas, the line's own start (no self-link), its own end (no change)
+    expect((await docOf(page)).connections).toEqual(DOC.connections);
+    expect(await past(page)).toBe(0);
+  }
+  // Escape mid-drag cancels: no change, no history, no preview left behind.
+  const h0 = (await end.boundingBox())!;
+  const c0 = await center(page, 'c');
+  await page.mouse.move(h0.x + h0.width / 2, h0.y + h0.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(c0.x, c0.y, { steps: 8 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(page.getByTestId('reconnect-preview')).toHaveCount(0);
+  expect((await docOf(page)).connections).toEqual(DOC.connections);
+  expect(await past(page)).toBe(0);
+  await page.mouse.click(p.x, p.y); // Escape also cleared the selection: select the line again
+  await dragEnd(await center(page, 'c')); // a body drop floats
+  await expect.poll(async () => (await docOf(page)).connections).toEqual([{ from: 'a', to: 'c' }]);
+  await settled(page);
+  const top = await page.evaluate(() => {
+    const b = (window as any).__dg.ui.getState().render.boxes.c;
+    return { x: b.x + b.width / 2, y: b.y };
+  });
+  await dragEnd(await toScreen(page, top.x, top.y)); // a port drop pins both ends
+  await expect
+    .poll(async () => (await docOf(page)).connections[0])
+    .toMatchObject({ from: 'a', to: 'c', toPort: 'top' });
+  expect((await docOf(page)).connections[0].fromPort).toBeTruthy();
+  expect(await past(page)).toBe(2);
+  // A body drop back on the element this end is already on keeps its port: no change, no history.
+  await settled(page);
+  const pinned = (await docOf(page)).connections;
+  const low = await page.evaluate(() => {
+    const b = (window as any).__dg.ui.getState().render.boxes.c;
+    return { x: b.x + b.width / 2, y: b.y + b.height * 0.75 };
+  });
+  await dragEnd(await toScreen(page, low.x, low.y));
+  expect((await docOf(page)).connections).toEqual(pinned);
+  expect(await past(page)).toBe(2);
+  await page.keyboard.press(`${mod}+z`);
+  expect((await docOf(page)).connections).toEqual([{ from: 'a', to: 'c' }]);
+  // Keyboard: Enter on the end handle, then Enter on a port.
+  await end.focus();
+  await page.keyboard.press('Enter');
+  const port = page.locator('.connection-port[data-id="b"][data-port="left"]');
+  await port.focus();
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(async () => (await docOf(page)).connections[0])
+    .toMatchObject({ from: 'a', to: 'b', toPort: 'left' });
+});
+
+test('reconnecting inside a group keeps membership', async () => {
+  const page = await open({
+    entities: [
+      { tag: 'Group', id: 'vpc', x: 40, y: 40, width: 600, height: 400, title: { text: 'VPC' } },
+      ...DOC.entities.map((e) => ({ ...e, containerId: 'vpc' })),
+    ],
+    connections: DOC.connections,
+  });
+  const p = await onLine(page, 0);
+  await page.mouse.click(p.x, p.y);
+  const h = (await page.getByTestId('conn-end-from').boundingBox())!;
+  const c = await center(page, 'c');
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(c.x, c.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await docOf(page)).connections).toEqual([{ from: 'c', to: 'b' }]);
+  expect((await docOf(page)).entities.filter((e: any) => e.containerId === 'vpc')).toHaveLength(3);
+});
+
+test('a reconnect that would duplicate a line, or a tab switch mid-drag, changes nothing', async () => {
+  const doc = { ...DOC, connections: [...DOC.connections, { from: 'c', to: 'b' }] };
+  const page = await open(doc);
+  const p = await onLine(page, 1);
+  await page.mouse.click(p.x, p.y);
+  const drag = async (end: string, to: { x: number; y: number }, before: () => Promise<void>) => {
+    const h = (await page.getByTestId(`conn-end-${end}`).boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await expect(page.getByTestId('reconnect-preview')).toBeVisible();
+    await before();
+    await page.mouse.up();
+  };
+  await drag('from', await center(page, 'a'), async () => {}); // c → b would become a second a → b
+  expect((await docOf(page)).connections).toEqual(doc.connections);
+  expect(await past(page)).toBe(0);
+  // c → a would be valid, but the tab switch cancels it: no preview, and the release changes nothing.
+  await drag('to', await center(page, 'a'), async () => {
+    await page.evaluate(() => (window as any).__dg.actions.newTab());
+    await expect(page.getByTestId('reconnect-preview')).toHaveCount(0);
+  });
+  const [first, second] = await page.evaluate(() =>
+    (window as any).__dg.tabs.getState().tabs.map((t: any) => t.doc),
+  );
+  expect(first.connections).toEqual(doc.connections);
+  expect(second).toEqual({ entities: [], connections: [] });
+});

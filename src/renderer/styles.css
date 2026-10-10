@@ -1109,6 +1109,25 @@ body {
   pointer-events: none;
   z-index: 5;
 }
+/* Reconnect handles on the ends of a selected connection. */
+.conn-end {
+  position: absolute;
+  z-index: 5;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--s4);
+  cursor: move;
+  touch-action: none;
+}
+.conn-end:hover,
+.conn-end:focus-visible {
+  background: var(--line);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--line) 25%, transparent);
+}
 .guide {
   position: absolute;
   background: var(--guide);

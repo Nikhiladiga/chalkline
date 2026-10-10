@@ -13,6 +13,7 @@ import {
   insertIcon,
   moveEntities,
   pasteElements,
+  reconnect,
   reparent,
   selectionRoots,
   setConnectionLabel,
@@ -386,5 +387,50 @@ describe('setConnectionLabel', () => {
     expect(setConnectionLabel(set, 0, 'HTTP')).toBe(set);
     expect(setConnectionLabel(set, 0, '   ').connections[0]).not.toHaveProperty('label');
     expect(setConnectionLabel(d, 7, 'x')).toBe(d);
+  });
+});
+
+describe('reconnect', () => {
+  it('moves one end, drops the stale route and keeps the rest', () => {
+    const d = doc();
+    d.connections[0]!.label = 'calls';
+    const out = reconnect(d, 0, 'to', 'db');
+    expect(out.connections[0]).toEqual({ from: 'web', to: 'db', label: 'calls' });
+    expect(d.connections[0]!.to).toBe('api'); // input untouched
+  });
+
+  it('sets ports on both ends or on neither', () => {
+    const pinned = reconnect(doc(), 0, 'to', 'db', { fromPort: 'left', toPort: 'top' });
+    expect(pinned.connections[0]).toMatchObject({ from: 'web', to: 'db', fromPort: 'left', toPort: 'top' });
+    const floating = reconnect(pinned, 0, 'to', 'api');
+    expect(floating.connections[0]).not.toHaveProperty('fromPort');
+    expect(floating.connections[0]).not.toHaveProperty('toPort');
+  });
+
+  it('refuses self-links, missing targets or connections, no-ops and duplicates', () => {
+    const d = doc();
+    expect(reconnect(d, 0, 'to', 'web')).toBe(d); // web → web
+    expect(reconnect(d, 0, 'to', 'nope')).toBe(d);
+    expect(reconnect(d, 9, 'to', 'db')).toBe(d);
+    expect(reconnect(d, 0, 'to', 'api')).toBe(d); // unchanged
+    expect(reconnect(d, 0, 'from', 'api')).toBe(d); // api → api
+    const twin = reconnect(d, 1, 'from', 'web'); // api → db becomes web → db
+    expect(reconnect(twin, 0, 'to', 'db')).toBe(twin); // would duplicate web → db
+  });
+
+  it('treats duplicates as connect does: a floating pair duplicates any pinning, ports only their own', () => {
+    const d = connect(doc(), 'web', 'db', { fromPort: 'left', toPort: 'top' });
+    expect(reconnect(d, 0, 'to', 'db')).toBe(d); // web → db already exists
+    expect(reconnect(d, 0, 'to', 'db', { fromPort: 'left', toPort: 'top' })).toBe(d);
+    const other = reconnect(d, 0, 'to', 'db', { fromPort: 'bottom', toPort: 'right' });
+    expect(other.connections[0]).toMatchObject({
+      from: 'web',
+      to: 'db',
+      fromPort: 'bottom',
+      toPort: 'right',
+    });
+    // Moving an end to another port of the same element is a change.
+    const moved = reconnect(other, 0, 'to', 'db', { fromPort: 'bottom', toPort: 'left' });
+    expect(moved.connections[0]).toMatchObject({ toPort: 'left' });
   });
 });
