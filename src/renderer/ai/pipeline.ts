@@ -141,7 +141,7 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
     const deepNew = req.deep && req.mode === 'generate';
     if ((messy || deepNew) && (req.mode === 'generate' || req.allowMove)) {
       deps.onStage(messy ? 'layout fallback' : 'auto-layout');
-      doc = await autoLayout(doc, boxes);
+      doc = await autoLayout(doc, boxes, { deep: req.deep });
       laidOut = messy;
     } else if (messy) {
       const before = new Set(req.current.entities.map((e) => e.id));

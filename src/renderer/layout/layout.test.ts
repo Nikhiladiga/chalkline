@@ -242,3 +242,138 @@ describe('autoLayout header and empty groups', () => {
     expect(out.entities.find((e) => e.id === 'empty')!.height).toBeLessThan(200);
   });
 });
+
+describe('deep-scan layout', () => {
+  // Trimmed from a real deep scan: client → API group → pipeline group → shared stores.
+  const icon = (id: string, containerId?: string) => ({
+    tag: 'Icon',
+    id,
+    icon: 'server',
+    x: 0,
+    y: 0,
+    ...(containerId ? { containerId } : {}),
+  });
+  const group = (id: string, containerId?: string) => ({
+    tag: 'Group',
+    id,
+    x: 0,
+    y: 0,
+    title: { text: id },
+    ...(containerId ? { containerId } : {}),
+  });
+  const deep: Doc = {
+    entities: [
+      icon('client'),
+      group('system'),
+      group('api', 'system'),
+      icon('upload', 'api'),
+      icon('progress', 'api'),
+      icon('cleanup', 'api'),
+      group('pipeline', 'system'),
+      icon('bus', 'pipeline'),
+      icon('issuer', 'pipeline'),
+      icon('holders', 'pipeline'),
+      icon('orders', 'pipeline'),
+      icon('banking', 'pipeline'),
+      icon('address', 'pipeline'),
+      group('jobs', 'system'),
+      icon('jobs-ctl', 'jobs'),
+      icon('jobs-svc', 'jobs'),
+      icon('postgres', 'system'),
+      icon('s3', 'system'),
+      icon('ledger', 'system'),
+      icon('sentry', 'system'),
+      { tag: 'Textbox', id: 'note', x: 0, y: 0, width: 640, text: 'Sources: src/app.ts:47' },
+    ],
+    connections: [
+      ['client', 'upload'],
+      ['client', 'progress'],
+      ['client', 'cleanup'],
+      ['upload', 'postgres'],
+      ['upload', 'bus'],
+      ['bus', 'issuer'],
+      ['bus', 'holders'],
+      ['bus', 'orders'],
+      ['issuer', 'ledger'],
+      ['holders', 's3'],
+      ['holders', 'ledger'],
+      ['holders', 'postgres'],
+      ['orders', 'ledger'],
+      ['orders', 's3'],
+      ['progress', 'postgres'],
+      ['cleanup', 'postgres'],
+      ['cleanup', 's3'],
+      ['api', 'sentry'],
+      ['bus', 'banking'],
+      ['bus', 'address'],
+      ['banking', 'ledger'],
+      ['address', 'ledger'],
+      ['client', 'jobs-ctl'],
+      ['jobs-ctl', 'jobs-svc'],
+      ['jobs-svc', 'postgres'],
+      ['jobs-svc', 's3'],
+    ].map(([from, to]) => ({ from: from!, to: to! })),
+  };
+  // Icon footprints: 50px glyph plus a caption spilling 25px each side and 40px below.
+  const footprints: Record<string, Box> = Object.fromEntries(
+    deep.entities.map((e) => [
+      e.id,
+      e.tag === 'Textbox' ? { x: 0, y: 0, width: 640, height: 60 } : { x: -25, y: 0, width: 100, height: 90 },
+    ]),
+  );
+  const shared = ['postgres', 's3', 'ledger'];
+  const containers = new Set(['system', 'api', 'pipeline', 'jobs']);
+  const layout = () => autoLayout(deep, footprints, { deep: true });
+  const sizeOf = (out: Doc) => {
+    const box = (e: Doc['entities'][number]): Box =>
+      containers.has(e.id)
+        ? { x: e.x, y: e.y, width: e.width as number, height: e.height as number }
+        : { ...footprints[e.id]!, x: e.x - 25, y: e.y };
+    return Object.fromEntries(out.entities.map((e) => [e.id, box(e)]));
+  };
+
+  it('is wider than tall', async () => {
+    const b = Object.values(sizeOf(await layout()));
+    const w = Math.max(...b.map((r) => r.x + r.width)) - Math.min(...b.map((r) => r.x));
+    const h = Math.max(...b.map((r) => r.y + r.height)) - Math.min(...b.map((r) => r.y));
+    expect(w / h).toBeGreaterThanOrEqual(1);
+  });
+
+  it('puts shared stores in a right-hand column and sources leftmost', async () => {
+    const out = await layout();
+    const x = (id: string) => out.entities.find((e) => e.id === id)!.x;
+    const others = out.entities.filter((e) => e.tag === 'Icon' && !shared.includes(e.id)).map((e) => e.id);
+    for (const s of shared) for (const o of others) expect(x(s)).toBeGreaterThanOrEqual(x(o));
+    for (const o of out.entities.filter((e) => e.id !== 'client' && e.id !== 'note'))
+      expect(x('client')).toBeLessThan(o.x);
+  });
+
+  it('keeps the source note below the diagram', async () => {
+    const out = await layout();
+    const b = sizeOf(out);
+    const note = b.note!;
+    for (const [id, r] of Object.entries(b))
+      if (id !== 'note') expect(note.y).toBeGreaterThanOrEqual(r.y + r.height);
+  });
+
+  it('keeps children inside their groups without overlaps', async () => {
+    const out = await layout();
+    expect(checkLayout(out, sizeOf(out))).toEqual({ overlaps: [], outside: [] });
+  });
+
+  it('lays out side by side even with several top-level groups', async () => {
+    const flat: Doc = {
+      ...deep,
+      entities: deep.entities
+        .filter((e) => e.id !== 'system')
+        .map((e) => {
+          const { containerId, ...rest } = e;
+          return containerId === 'system' ? rest : e;
+        }),
+    };
+    const out = await autoLayout(flat, footprints, { deep: true });
+    const by = (id: string) => out.entities.find((e) => e.id === id)!;
+    expect(by('pipeline').x).toBeGreaterThan(by('api').x + (by('api').width as number));
+    for (const s of shared) expect(by(s).x).toBeGreaterThan(by('pipeline').x);
+  });
+});
