@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useDoc } from './doc/store';
+import { isPristine, useDoc, useTabs } from './doc/store';
 import * as engine from './engine/engine';
 import { render } from './engine/engine';
 import { applyTheme } from './engine/theme';
@@ -28,7 +28,7 @@ import { requestFit, useUi } from './ui/uiStore';
 
 const testMode = new URLSearchParams(location.search).has('test');
 if (import.meta.env.DEV || testMode) {
-  (window as any).__dg = { ...engine, actions, checkLayout, doc: useDoc, ui: useUi };
+  (window as any).__dg = { ...engine, actions, checkLayout, doc: useDoc, tabs: useTabs, ui: useUi };
 }
 
 /** Re-render on every document change; keep the last good render when the document has errors. */
@@ -99,7 +99,7 @@ function useMenuAndFiles(): void {
     // Offer recovery of an unsaved diagram from the last session.
     if (!testMode) {
       void window.api.invoke('recovery:read').then((text: string | null) => {
-        if (!text || useDoc.getState().dirty || useDoc.getState().session !== 0) return;
+        if (!text || useTabs.getState().tabs.length > 1 || !isPristine(useDoc.getState())) return;
         if (window.confirm('Restore the unsaved diagram from your last session?')) restoreRecovery(text);
         else void window.api.invoke('recovery:clear');
       });
