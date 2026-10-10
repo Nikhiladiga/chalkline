@@ -31,7 +31,15 @@ export function withDescendants(doc: Doc, ids: string[]): Set<string> {
 
 /** The ids not inside another listed id: what a move or an align acts on (descendants follow). */
 export function selectionRoots(doc: Doc, ids: string[]): string[] {
-  return ids.filter((x) => !ids.some((o) => o !== x && descendants(doc, o).includes(x)));
+  // Walk each id's ancestors (O(n·depth)); runs per Inspector render, so per marquee move.
+  const set = new Set(ids);
+  const parent = new Map(doc.entities.map((e) => [e.id, e.containerId]));
+  return ids.filter((x) => {
+    // The step bound only matters for a (validator-rejected) containment cycle.
+    for (let p = parent.get(x), d = 0; p && d < parent.size; p = parent.get(p), d++)
+      if (p !== x && set.has(p)) return false;
+    return true;
+  });
 }
 
 /** Authored routes pin a connection's path; drop them so the router re-routes after a move. */

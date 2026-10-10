@@ -331,6 +331,24 @@ describe('selectionRoots', () => {
     expect(selectionRoots(doc(), ['vpc', 'api', 'db', 'web'])).toEqual(['vpc', 'web']);
     expect(selectionRoots(doc(), ['sub', 'api'])).toEqual(['sub', 'api']);
   });
+
+  it('stays near-linear on a large select-all', () => {
+    // 100 groups, each with a nested group and 8 leaves inside it: 1000 entities, depth 3.
+    const entities: Doc['entities'] = [];
+    for (let g = 0; g < 100; g++) {
+      entities.push({ tag: 'Group', id: `g${g}`, x: 0, y: 0 });
+      entities.push({ tag: 'Group', id: `g${g}n`, x: 0, y: 0, containerId: `g${g}` });
+      for (let i = 0; i < 8; i++)
+        entities.push({ tag: 'Shape', id: `g${g}l${i}`, x: 0, y: 0, containerId: `g${g}n` });
+    }
+    const big: Doc = { entities, connections: [] };
+    const ids = entities.map((e) => e.id);
+    const t = performance.now();
+    const roots = selectionRoots(big, ids);
+    const ms = performance.now() - t;
+    expect(roots).toEqual(Array.from({ length: 100 }, (_, g) => `g${g}`));
+    expect(ms).toBeLessThan(50);
+  });
 });
 
 describe('copyElements / pasteElements', () => {
