@@ -51,6 +51,7 @@ it('deep scan explores the checkout itself: detailed rules, no excerpts, no exam
   const system = messages[0]!.content;
   expect(system.startsWith(systemPrompt(['server']))).toBe(true);
   for (const word of ['read-only', 'untrusted', '25', '60', 'protocol']) expect(system).toContain(word);
+  expect(system).not.toContain('protocol plus operation');
   expect(system).not.toContain('REPOSITORY ARCHITECTURE');
   expect(messages[1]).toEqual({ role: 'user', content: 'Map runtime architecture' });
   expect(messages.map((m) => m.content).join('\n')).not.toContain('Web app on AWS:');
@@ -87,4 +88,16 @@ it('deep prompt budget is provider-specific: Codex has no turn limit', () => {
   expect(system).toContain('15 minutes');
   expect(system).toContain('emit the JSON');
   expect(system).not.toMatch(/turns?\b.*stops|stops after \d+ turns/);
+});
+
+it('deep prompt asks for short plain edge labels, merged parallels and a sparse fan-in', () => {
+  const system = buildMessages('generate', 'x', empty, [], () => ({}), undefined, true)[0]!.content;
+  expect(system).toMatch(/1-3 plain words/);
+  expect(system).toMatch(/"HTTP POST", "SQL write"/);
+  expect(system).toMatch(/no paths, table names, raw constants or ALL_CAPS identifiers/);
+  expect(system).toMatch(/Merge parallel connections between the same pair into one/);
+  expect(system).toMatch(/at most one edge from each component to it/);
+  expect(system).toMatch(/only repeats the target's name/);
+  expect(system).toMatch(/about 1\.5 connections per element/);
+  expect(system).toMatch(/source note OUTSIDE all Groups/);
 });
