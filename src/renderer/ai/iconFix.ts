@@ -51,7 +51,6 @@ const BRANDS = new Set(
     ' ',
   ),
 );
-const GENERIC = new Set(GENERAL);
 const CONCEPTS = new Set(GENERAL.filter((n) => !BRANDS.has(n)));
 /** Aliases that turn a concept into one vendor's product ("cache" → redis): never trusted for a caption. */
 const VENDOR_GUESSES = new Set(['queue', 'cache', 'cdn', 'vpc']);
@@ -63,7 +62,7 @@ export function namedIcon(
   aliases: Record<string, string>,
 ): string | undefined {
   const s = slug(label);
-  const hit = known.has(s) ? s : VENDOR_GUESSES.has(s) ? undefined : aliases[s];
+  const hit = VENDOR_GUESSES.has(s) ? undefined : known.has(s) ? s : aliases[s];
   return hit && known.has(hit) && !CONCEPTS.has(hit) ? hit : undefined;
 }
 
@@ -87,7 +86,7 @@ export function fixIcons(
     if (typeof name !== 'string' || !name) return;
     let icon = resolveIcon(name, names, aliases) ?? name;
     const named =
-      typeof label === 'string' && kept !== name && GENERIC.has(icon)
+      typeof label === 'string' && kept !== name && CONCEPTS.has(icon)
         ? namedIcon(label, known, aliases)
         : undefined;
     if (named) icon = named;

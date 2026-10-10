@@ -142,6 +142,9 @@ describe('fixIcons caption pass', () => {
   it('never overrides a specific pick, or maps concepts and non-products', () => {
     expect(pick(icon('aws-lambda', 'Node'))).toBe('aws-lambda');
     expect(pick(icon('aws-lambda', 'Sentry'))).toBe('aws-lambda');
+    expect(pick(icon('mysql', 'Postgres'))).toBe('mysql');
+    expect(pick(icon('github', 'GitLab'))).toBe('github');
+    expect(pick(icon('react', 'Node'))).toBe('react');
     expect(pick(icon('settings', 'Cleanup Jobs'))).toBe('settings');
     expect(pick(icon('bell', 'Alert service'))).toBe('bell');
     expect(pick(icon('bell', 'Database'))).toBe('bell');
