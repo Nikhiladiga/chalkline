@@ -58,7 +58,8 @@ const SPEC_DENY = [
   '**/.agents/**',
   '**/.cursor/**',
 ];
-// The CLI's globs are case-sensitive but macOS volumes are not, so also deny UPPER and Capitalized spellings.
+// Claude Code 2.1.295 matches deny rules case-insensitively (observed from its bundled matcher, not documented);
+// we add UPPER/Capitalized variants as defense in depth in case a future version changes this.
 const capitalize = (g: string) => g.replace(/[a-z]/, (c) => c.toUpperCase());
 export const DENY_READ = [
   ...new Set([...SPEC_DENY, ...SPEC_DENY.flatMap((g) => [g.toUpperCase(), capitalize(g)])]),

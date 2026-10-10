@@ -418,7 +418,7 @@ describe('Claude Code deep scan', () => {
     expect(deny).toBeNull();
   });
 
-  it('runs in the folder with read-only tools, --restricted, a turn cap and the verbatim deny list', async () => {
+  it('runs in the folder with read-only tools, --restricted, a turn cap and the spec deny list plus case variants', async () => {
     const { bin, log } = fakeClaude();
     const root = project();
     await deepRun(cli(bin, { deepScan: true }), root);
