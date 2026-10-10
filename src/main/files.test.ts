@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dialog } from 'electron';
@@ -31,4 +31,10 @@ it('refuses an export into the app data folder', async () => {
   pick(join(userData, 'settings.json'));
   await expect(saveExport(win, 'diagram', 'json', '{}')).rejects.toThrow('app data folder');
   expect(existsSync(join(userData, 'settings.json'))).toBe(false);
+});
+
+it.skipIf(process.platform === 'win32')('writes exports with normal, shareable permissions', async () => {
+  pick(join(dir, 'shared.png'));
+  await saveExport(win, 'diagram', 'png', new Uint8Array([1, 2, 3]));
+  expect(statSync(join(dir, 'shared.png')).mode & 0o777).not.toBe(0o600);
 });

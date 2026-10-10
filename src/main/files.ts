@@ -9,10 +9,10 @@ const userFile = (name: string) => join(app.getPath('userData'), name);
 const FILTERS = [{ name: 'Diagram', extensions: ['json'] }];
 
 /** Write beside the destination, then atomically replace it; never truncate a user's last good file. */
-async function atomicWrite(path: string, content: string | Uint8Array): Promise<void> {
+async function atomicWrite(path: string, content: string | Uint8Array, mode = 0o600): Promise<void> {
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temp, content, { flag: 'wx', mode: 0o600 });
+    await writeFile(temp, content, { flag: 'wx', mode });
     await rename(temp, path);
   } finally {
     await rm(temp, { force: true });
@@ -75,7 +75,8 @@ export async function saveExport(
   if (!path) return null;
   const target = await outsideAppData(path, app.getPath('userData'));
   if (!target) throw new Error('Exports cannot be saved inside the Chalkline app data folder.');
-  await atomicWrite(target, content);
+  // Exports are meant to be shared: normal permissions (0o666 less the umask), unlike diagrams.
+  await atomicWrite(target, content, 0o666);
   return path;
 }
 
