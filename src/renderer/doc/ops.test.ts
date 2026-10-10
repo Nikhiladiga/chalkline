@@ -362,4 +362,16 @@ describe('copyElements / pasteElements', () => {
     };
     expect(pasteElements(doc(), clip, 0, 0, false).doc.connections).toHaveLength(2);
   });
+
+  it('strips foreign connection ids and routes, and pastes 2,000 elements quickly', () => {
+    const clip: Doc = {
+      entities: Array.from({ length: 2000 }, (_, i) => ({ tag: 'Shape', id: `n${i}`, x: i, y: 0 })),
+      connections: [{ from: 'n0', to: 'n1', id: 'k', points: [[1, 1]] } as never],
+    };
+    const t0 = performance.now();
+    const { doc: out } = pasteElements(doc(), clip, 0, 0, false);
+    expect(performance.now() - t0).toBeLessThan(500);
+    expect(new Set(out.entities.map((e) => e.id)).size).toBe(out.entities.length);
+    expect(out.connections.at(-1)).toEqual({ from: 'n0', to: 'n1' });
+  });
 });

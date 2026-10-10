@@ -170,7 +170,10 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
       dirty = flag;
     },
     'clipboard:write': (text) => clipboard.writeText(text),
-    'clipboard:read': () => clipboard.readText(),
+    'clipboard:read': async () => {
+      const text = await clipboard.readText();
+      return text.length > 10_000_000 ? '' : text; // same bound as a write; a huge foreign clipboard is ignored
+    },
   };
 
 for (const [channel, handler] of Object.entries(handlers)) {

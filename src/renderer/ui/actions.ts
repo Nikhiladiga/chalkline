@@ -390,7 +390,7 @@ export async function copySelection(cut = false, id = useTabs.getState().activeI
     return toast(`Copy failed: ${ipcMessage(e)}`);
   }
   if (cut && tabState(id)?.doc === t.doc) {
-    docApi(id).commit(deleteElements(t.doc, t.selection.entities, t.selection.connections));
+    docApi(id).commit(deleteElements(t.doc, t.selection.entities, [])); // only what was copied
     docApi(id).select({ entities: [], connections: [] });
   }
 }

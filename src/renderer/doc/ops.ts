@@ -174,8 +174,12 @@ export function pasteElements(
 ): { doc: Doc; newIds: string[]; idMap: Map<string, string> } {
   const out = clone(doc);
   const idMap = new Map<string, string>();
+  const taken = new Set(doc.entities.map((e) => e.id)); // built once: uniqueId per entity is quadratic
   for (const e of clip.entities) {
-    const id = uniqueId(out, e.id);
+    const root = slug(e.id);
+    let id = root;
+    for (let n = 2; taken.has(id); n++) id = `${root}-${n}`;
+    taken.add(id);
     idMap.set(e.id, id);
     out.entities.push({ ...structuredClone(e), id, x: Math.round(e.x + dx), y: Math.round(e.y + dy) });
   }
@@ -193,7 +197,10 @@ export function pasteElements(
   for (const c of clip.connections) {
     const from = idMap.get(c.from);
     const to = idMap.get(c.to);
-    if (from && to) out.connections.push({ ...structuredClone(c), from, to });
+    if (!from || !to) continue;
+    const copy = structuredClone(c); // foreign JSON may carry ids and routes of another document
+    for (const k of [...ROUTE_KEYS, 'id'] as const) delete copy[k];
+    out.connections.push({ ...copy, from, to });
   }
   return { doc: out, newIds, idMap };
 }

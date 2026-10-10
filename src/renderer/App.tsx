@@ -79,8 +79,9 @@ function useShortcuts(): void {
       else if (mod && k === 'y') store.redo();
       else if (mod && (k === 'c' || k === 'x') && store.selection.entities.length)
         void copySelection(k === 'x');
-      else if (mod && k === 'v') void pasteClipboard();
-      else if (mod && k === 'd') duplicateSelection();
+      else if (mod && k === 'v') {
+        if (!e.repeat) void pasteClipboard();
+      } else if (mod && k === 'd') duplicateSelection();
       else if (mod && k === 'a')
         store.select({ entities: store.doc.entities.map((x) => x.id), connections: [] });
       else if (mod && e.key === ',') useUi.getState().set({ settingsOpen: true });

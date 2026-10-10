@@ -7,7 +7,7 @@ import names from '../../../icons/names.json';
 import type { Box, Doc } from '../engine/types';
 import { fixIcons } from './iconFix';
 import { fitContainers, mergePositions, placeNew } from './merge';
-import { docFromJson, extractJson, fragmentFromText, toSplit } from './parse';
+import { docFromJson, extractJson, fragmentFromText, MAX_FRAGMENT, toSplit } from './parse';
 import { type AiDeps, runAi } from './pipeline';
 import { buildMessages, FEW_SHOT, iconSubset, systemPrompt } from './prompt';
 import { stripForModel } from './strip';
@@ -180,6 +180,21 @@ describe('fragmentFromText', () => {
       'null',
     ])
       expect(fragmentFromText(text)).toBeNull();
+  });
+});
+
+describe('fragmentFromText limits', () => {
+  const frag = (n: number) =>
+    JSON.stringify({
+      entities: Array.from({ length: n }, (_, i) => ({ tag: 'Icon', id: `a${i}`, x: 0, y: 0 })),
+      connections: [],
+    });
+  it('enforces the element cap and rejects oversized text fast', () => {
+    expect(fragmentFromText(frag(MAX_FRAGMENT))).not.toBeNull();
+    expect(fragmentFromText(frag(MAX_FRAGMENT + 1))).toBeNull();
+    const t0 = performance.now();
+    expect(fragmentFromText('x'.repeat(10_000_001))).toBeNull();
+    expect(performance.now() - t0).toBeLessThan(100);
   });
 });
 
