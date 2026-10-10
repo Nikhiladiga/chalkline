@@ -45,9 +45,7 @@ export type ChatMsg = z.infer<typeof ChatMsg>;
 /** Every invoke channel and the zod schema of its single argument. */
 export const channels = {
   'file:open': z.undefined(),
-  'file:openPath': z.string(),
   'file:save': z.object({ path: z.string().nullable(), content: z.string() }),
-  'file:recent': z.undefined(),
   'recovery:write': z.string(),
   'recovery:read': z.undefined(),
   'recovery:clear': z.undefined(),

@@ -3,6 +3,7 @@ import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app, type BrowserWindow, dialog } from 'electron';
 import type { OpenedFile } from '../shared/ipc';
+import { allowedSave, chosenKey } from './savePaths';
 
 const userFile = (name: string) => join(app.getPath('userData'), name);
 const FILTERS = [{ name: 'Diagram', extensions: ['json'] }];
@@ -32,9 +33,11 @@ async function pushRecent(path: string): Promise<void> {
   app.addRecentDocument(path);
 }
 
-export const recent = readRecent;
+/** Documents the user picked in a native Open/Save dialog: the only paths `file:save` may overwrite silently. */
+const chosen = new Set<string>();
+const choose = async (path: string) => chosen.add(await chosenKey(path));
 
-export async function openPath(path: string): Promise<OpenedFile> {
+async function openPath(path: string): Promise<OpenedFile> {
   const content = await readFile(path, 'utf8');
   await pushRecent(path);
   return { path, content };
@@ -42,7 +45,10 @@ export async function openPath(path: string): Promise<OpenedFile> {
 
 export async function openDialog(win: BrowserWindow): Promise<OpenedFile | null> {
   const r = await dialog.showOpenDialog(win, { filters: FILTERS, properties: ['openFile'] });
-  return r.canceled || !r.filePaths[0] ? null : openPath(r.filePaths[0]);
+  if (r.canceled || !r.filePaths[0]) return null;
+  const opened = await openPath(r.filePaths[0]);
+  await choose(opened.path);
+  return opened;
 }
 
 /** Ask where to save (tests set DG_SAVE_DIR to skip the dialog). */
@@ -55,13 +61,21 @@ export async function askSavePath(win: BrowserWindow, name: string, ext: string)
   return r.canceled || !r.filePath ? null : r.filePath;
 }
 
+/** The renderer only names a path; main writes there only if the user chose it, else asks with the Save dialog. */
 export async function save(win: BrowserWindow, path: string | null, content: string): Promise<string | null> {
-  const target = path ?? (await askSavePath(win, 'diagram', 'json'));
-  if (!target) return null;
+  const userData = app.getPath('userData');
+  let target = path && (await allowedSave(path, chosen, userData));
+  if (!path || !target) {
+    path = await askSavePath(win, 'diagram', 'json');
+    if (!path) return null;
+    await choose(path);
+    target = await allowedSave(path, chosen, userData);
+    if (!target) throw new Error('Diagrams cannot be saved inside the Chalkline app data folder.');
+  }
   await atomicWrite(target, content);
   // A recent-list failure must not turn an already successful save into a failed one.
-  await pushRecent(target).catch(() => {});
-  return target;
+  await pushRecent(path).catch(() => {});
+  return path;
 }
 
 let recoveryQueue: Promise<unknown> = Promise.resolve();

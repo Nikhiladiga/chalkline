@@ -7,15 +7,17 @@ import { launch } from './launch';
 
 async function open() {
   const dir = mkdtempSync(join(tmpdir(), 'dg-visual-'));
-  mkdirSync(join(dir, 'icons'));
-  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ hostedIcons: false }));
+  // Saves never land in the app data folder, so keep it apart from the save directory.
+  const ud = join(dir, 'ud');
+  mkdirSync(join(ud, 'icons'), { recursive: true });
+  writeFileSync(join(ud, 'settings.json'), JSON.stringify({ hostedIcons: false }));
   for (const name of ['user', 'server', 'aws-lambda', 'aws-simple-storage-service'])
     writeFileSync(
-      join(dir, 'icons', `${name}.svg`),
+      join(ud, 'icons', `${name}.svg`),
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect x="2" y="2" width="44" height="44" rx="4" fill="#6775da"/></svg>',
     );
   const launched = await launch({
-    DG_USER_DATA: dir,
+    DG_USER_DATA: ud,
     DG_SAVE_DIR: dir,
     DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1',
   });

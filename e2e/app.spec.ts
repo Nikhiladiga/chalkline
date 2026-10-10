@@ -193,13 +193,16 @@ test('generate → edit → drag → connect → save/reopen → export PNG and 
   await page.evaluate(() =>
     (window as any).__dg.doc.getState().load({ entities: [], connections: [] }, null),
   );
-  await page.evaluate(
-    async (p) => {
-      const f = await window.api.invoke('file:openPath', p);
-      (window as any).__dg.actions.loadText(f.content, f.path);
+  await app.evaluate(
+    ({ dialog }, path) => {
+      (dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
     },
     join(dir, 'diagram.json'),
   );
+  await page.evaluate(async () => {
+    const f = await window.api.invoke('file:open');
+    (window as any).__dg.actions.loadText(f.content, f.path);
+  });
   expect(await docOf(page)).toEqual(doc);
   await settle(page);
 

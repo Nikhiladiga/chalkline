@@ -92,9 +92,7 @@ const aborts = new Map<string, AbortController>();
 const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electron.WebContents) => unknown } =
   {
     'file:open': (_a, win) => files.openDialog(win),
-    'file:openPath': (path) => files.openPath(path),
     'file:save': (a, win) => files.save(win, a.path, a.content),
-    'file:recent': () => files.recent(),
     'recovery:write': (content) => files.writeRecovery(content),
     'recovery:read': () => files.readRecovery(),
     'recovery:clear': () => files.clearRecovery(),
