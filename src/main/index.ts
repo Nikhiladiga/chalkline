@@ -4,8 +4,8 @@ import { type Channel, parseArgs } from '../shared/ipc';
 import { exportPng } from './export';
 import * as files from './files';
 import { handleIcons, registerIconScheme } from './icons';
-import { chat, friendlyError, installedHarnesses, listModels } from './llm';
-import { chooseProject, scanSelectedProject } from './projects';
+import { chat, deepCwd, friendlyError, installedHarnesses, listModels } from './llm';
+import { chooseProject, projectPath, scanSelectedProject } from './projects';
 import { getKey, getSettings, publicSettings, setSettings } from './settings';
 
 // The app was called Diagrammer; keep its data folder so settings and the icon cache survive the rename.
@@ -112,7 +112,11 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
       const ac = new AbortController();
       aborts.set(a.id, ac);
       try {
-        return await chat(s, getKey(), a, (text) => sender.send('llm:chunk', { id: a.id, text }), ac.signal);
+        // Second gate: a projectId only works when Deep scan is on for a CLI provider.
+        const cwd = a.projectId ? deepCwd(s, projectPath(a.projectId)) : undefined;
+        return await chat(s, getKey(), a, (text) => sender.send('llm:chunk', { id: a.id, text }), ac.signal, {
+          cwd,
+        });
       } catch (e) {
         throw new Error(friendlyError(e, s));
       } finally {

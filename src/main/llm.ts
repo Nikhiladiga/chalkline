@@ -1,5 +1,6 @@
-import type { ChatMsg, Settings } from '../shared/ipc';
-import { CLI_MODELS, CliMissing, cliChat, findClaude } from './claudeCli';
+import { realpathSync, statSync } from 'node:fs';
+import { type ChatMsg, isCliProvider, type Settings } from '../shared/ipc';
+import { CLI_MODELS, CliMissing, cliChat, type Deep, findClaude } from './claudeCli';
 import { codexChat, codexModels } from './codexCli';
 
 export function installedHarnesses(): { provider: 'codex' | 'claude-code'; path: string }[] {
@@ -85,15 +86,33 @@ function body(s: Settings, req: { messages: ChatMsg[]; schema?: object }, withSc
   };
 }
 
+const DEEP_OFF = 'Deep scan is off or not supported by this provider.';
+
+/** Main's own Deep scan gate: the renderer alone cannot turn on tools. Returns the folder's realpath. */
+export function deepCwd(s: Settings, path: string): string {
+  if (!s.deepScan || !isCliProvider(s.provider)) throw new Error(DEEP_OFF);
+  try {
+    const real = realpathSync(path);
+    if (statSync(real).isDirectory()) return real;
+  } catch {}
+  throw new Error('Choose the code folder again before scanning.');
+}
+
 export async function chat(
   s: Settings,
   key: string | undefined,
   req: { messages: ChatMsg[]; schema?: object },
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  extra: { cwd?: string; onProgress?: (text: string) => void } = {},
 ): Promise<string> {
-  if (s.provider === 'claude-code') return cliChat(s, req, onChunk, signal);
-  if (s.provider === 'codex') return codexChat(s, req, onChunk, signal);
+  const deep: Deep | undefined = extra.cwd
+    ? { cwd: extra.cwd, onProgress: extra.onProgress ?? (() => {}) }
+    : undefined;
+  if (s.provider === 'claude-code') return cliChat(s, req, onChunk, signal, deep);
+  // Codex deep mode arrives in the next task; until then a deep request is refused, never run shallow.
+  if (s.provider === 'codex' && !deep) return codexChat(s, req, onChunk, signal);
+  if (deep) throw new Error(DEEP_OFF);
   const idle = new AbortController();
   let timer = setTimeout(() => idle.abort(new Error('LLM stopped responding')), IDLE_MS);
   const bump = () => {

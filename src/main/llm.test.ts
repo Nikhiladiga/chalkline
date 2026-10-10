@@ -1,11 +1,20 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, type Settings } from '../shared/ipc';
-import { chat, friendlyError, listModels } from './llm';
+import { DENY_READ, deepLimits } from './claudeCli';
+import { chat, deepCwd, friendlyError, listModels } from './llm';
 
 let server: Server | undefined;
 afterEach(() => server?.close());
@@ -182,10 +191,21 @@ function fakeClaude(): { bin: string; log: string } {
 let stdin = '';
 process.stdin.on('data', (c) => (stdin += c));
 process.stdin.on('end', () => {
-  require('fs').writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), stdin, env: process.env, cwd: process.cwd(), system: require('fs').readFileSync(process.argv[process.argv.indexOf('--system-prompt-file') + 1], 'utf8') }));
+  const fs = require('fs');
+  const argv = process.argv.slice(2);
+  const file = (flag) => (argv.includes(flag) ? fs.readFileSync(argv[argv.indexOf(flag) + 1], 'utf8') : null);
+  fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, stdin, env: process.env, cwd: process.cwd(), system: file('--system-prompt-file'), deny: JSON.parse(file('--settings') ?? 'null') }));
   const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
   const mode = process.env.MODE || 'ok';
   if (mode === 'hang') return setInterval(() => {}, 1000);
+  if (mode.startsWith('old:')) {
+    process.stderr.write("error: unknown option '" + mode.slice(4) + "'\\n");
+    process.exit(1);
+  }
+  if (mode === 'max-turns') {
+    out({ type: 'result', subtype: 'error_max_turns', is_error: true, result: null, errors: ['Reached maximum number of turns (60)'], terminal_reason: 'max_turns' });
+    return;
+  }
   if (mode === 'fail') {
     out({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' });
     return;
@@ -339,5 +359,221 @@ describe('friendlyError', () => {
         settings('http://x/v1', { provider: 'openai' }),
       ),
     ).toMatch(/API key/);
+  });
+});
+
+const project = () => realpathSync(mkdtempSync(join(tmpdir(), 'dg-project-')));
+const deepRun = (s: Settings, cwd: string, onChunk: (t: string) => void = () => {}) =>
+  chat(
+    s,
+    undefined,
+    { messages: conversation, schema: { type: 'object' } },
+    onChunk,
+    new AbortController().signal,
+    {
+      cwd,
+    },
+  );
+const withMode = async (mode: string, fn: () => Promise<void>) => {
+  process.env.MODE = mode;
+  try {
+    await fn();
+  } finally {
+    delete process.env.MODE;
+  }
+};
+
+describe('Claude Code deep scan', () => {
+  it('keeps the non-deep argv byte-for-byte unchanged', async () => {
+    const { bin, log } = fakeClaude();
+    await chat(
+      cli(bin),
+      undefined,
+      { messages: conversation, schema: { type: 'object' } },
+      () => {},
+      new AbortController().signal,
+    );
+    const { argv, cwd, deny } = JSON.parse(readFileSync(log, 'utf8'));
+    expect(argv).toEqual([
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+      '--system-prompt-file',
+      expect.stringMatching(/dg-claude-.*system\.md$/),
+      '--tools',
+      '',
+      '--setting-sources',
+      '',
+      '--strict-mcp-config',
+      '--disable-slash-commands',
+      '--no-session-persistence',
+      '--model',
+      'opus',
+      '--json-schema',
+      '{"type":"object"}',
+    ]);
+    expect(cwd).toMatch(/dg-claude-/);
+    expect(deny).toBeNull();
+  });
+
+  it('runs in the folder with read-only tools, --restricted, a turn cap and the verbatim deny list', async () => {
+    const { bin, log } = fakeClaude();
+    const root = project();
+    await deepRun(cli(bin, { deepScan: true }), root);
+    const { argv, cwd, deny, system } = JSON.parse(readFileSync(log, 'utf8'));
+    expect(cwd).toBe(root);
+    expect(system).toBe('SYSTEM RULES');
+    expect(argv).toEqual([
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+      '--system-prompt-file',
+      expect.stringMatching(/dg-claude-.*system\.md$/),
+      '--tools',
+      'Read,Grep,Glob',
+      '--allowedTools',
+      'Read,Grep,Glob',
+      '--permission-mode',
+      'dontAsk',
+      '--restricted',
+      '--settings',
+      expect.stringMatching(/dg-claude-.*deny\.json$/),
+      '--setting-sources',
+      '',
+      '--strict-mcp-config',
+      '--disable-slash-commands',
+      '--no-session-persistence',
+      '--max-turns',
+      '60',
+      '--model',
+      'opus',
+      '--json-schema',
+      '{"type":"object"}',
+    ]);
+    expect(argv.filter((a: string) => a === '--tools')).toHaveLength(1);
+    for (const flag of ['--bare', '--dangerously-skip-permissions', '--add-dir', '--max-budget-usd'])
+      expect(argv).not.toContain(flag);
+    // The temp dir holding system.md and deny.json sits outside cwd, so --restricted hides it.
+    expect(argv[argv.indexOf('--settings') + 1].startsWith(root)).toBe(false);
+    // Review Focus 1: the spec's list stays verbatim as the prefix; case variants (case-insensitive APFS) follow.
+    const SPEC =
+      `**/.env **/.env.* **/*.pem **/*.key **/*.p12 **/*.pfx **/*.jks **/*.keystore **/id_rsa* **/id_ed25519* **/id_ecdsa* **/.npmrc **/.netrc **/.pypirc **/credentials* **/secret/** **/secrets/** **/secrets.* **/service-account* **/service_account* **/*.tfstate **/*.tfstate.* **/.git/** **/.ssh/** **/.aws/** **/.gnupg/** **/.kube/** **/node_modules/** **/CLAUDE.md **/AGENTS.md **/GEMINI.md **/.cursorrules **/.claude/** **/.codex/** **/.agents/** **/.cursor/**`.split(
+        ' ',
+      );
+    expect(DENY_READ.slice(0, SPEC.length)).toEqual(SPEC);
+    expect(deny.permissions.deny).toEqual(
+      expect.arrayContaining(
+        [
+          '**/.ENV',
+          '**/.Env',
+          '**/.ENV.*',
+          '**/*.PEM',
+          '**/*.KEY',
+          '**/ID_RSA*',
+          '**/Secrets/**',
+          '**/SECRETS/**',
+          '**/.GIT/**',
+        ].map((g) => `Read(${g})`),
+      ),
+    );
+    expect(deny).toEqual({ permissions: { deny: DENY_READ.map((g) => `Read(${g})`) } });
+    expect(deny.permissions.deny).toEqual(
+      expect.arrayContaining([
+        'Read(**/.env)',
+        'Read(**/*.pem)',
+        'Read(**/id_rsa*)',
+        'Read(**/.git/**)',
+        'Read(**/secrets/**)',
+        'Read(**/credentials*)',
+      ]),
+    );
+  });
+
+  it('explains the 60-step limit instead of a raw error_max_turns', async () => {
+    const { bin } = fakeClaude();
+    await withMode('max-turns', () =>
+      expect(deepRun(cli(bin, { deepScan: true }), project())).rejects.toThrow(
+        'Deep scan hit its 60-step limit before finishing. Add a narrower focus (e.g. one service) and retry.',
+      ),
+    );
+  });
+
+  // Review Focus 3: --max-turns is a hidden flag; an older CLI rejects it as well as --restricted.
+  it.each(['--restricted', '--max-turns'])(
+    'asks for a newer Claude Code when it rejects %s',
+    async (flag) => {
+      const { bin } = fakeClaude();
+      await withMode(`old:${flag}`, async () => {
+        await expect(deepRun(cli(bin, { deepScan: true }), project())).rejects.toThrow(
+          'Deep scan needs a newer Claude Code. Run "claude update", or turn Deep scan off.',
+        );
+        // Outside deep mode the raw CLI error stays, so nobody is told to update for the wrong reason.
+        await expect(
+          chat(cli(bin), undefined, { messages: conversation }, () => {}, new AbortController().signal),
+        ).rejects.toThrow(/exited \(code 1\) without a result.*unknown option/);
+      });
+    },
+  );
+
+  it('stops a deep run at the wall clock', async () => {
+    const { bin } = fakeClaude();
+    deepLimits.wallMs = 300;
+    try {
+      await withMode('hang', () =>
+        expect(deepRun(cli(bin, { deepScan: true }), project())).rejects.toThrow(
+          'Deep scan took longer than 15 minutes and was stopped.',
+        ),
+      );
+    } finally {
+      deepLimits.wallMs = 15 * 60_000;
+    }
+  });
+
+  // Review Focus 5: a cwd must never be silently dropped and turned into a shallow run.
+  it('refuses a deep cwd for an HTTP provider', async () => {
+    await expect(
+      chat(
+        settings('http://127.0.0.1:9/v1'),
+        undefined,
+        { messages: msgs },
+        () => {},
+        new AbortController().signal,
+        {
+          cwd: project(),
+        },
+      ),
+    ).rejects.toThrow('Deep scan is off or not supported by this provider.');
+  });
+});
+
+describe('deepCwd gate', () => {
+  const on: Settings = { ...DEFAULT_SETTINGS, deepScan: true };
+
+  it('refuses unless Deep scan is on and the provider is a CLI', () => {
+    const root = project();
+    expect(() => deepCwd({ ...on, deepScan: false }, root)).toThrow(
+      'Deep scan is off or not supported by this provider.',
+    );
+    expect(() => deepCwd({ ...on, provider: 'lmstudio' }, root)).toThrow(/Deep scan is off/);
+    expect(() => deepCwd({ ...on, provider: 'openai' }, root)).toThrow(/Deep scan is off/);
+    expect(deepCwd({ ...on, provider: 'claude-code' }, root)).toBe(root);
+    expect(deepCwd({ ...on, provider: 'codex' }, root)).toBe(root);
+  });
+
+  // Review Focus 2: symlinked, deleted or non-directory folders.
+  it('runs in the real folder behind a symlink and asks to re-choose a folder that is gone', () => {
+    const real = project();
+    const link = join(project(), 'link');
+    symlinkSync(real, link);
+    expect(deepCwd(on, link)).toBe(real);
+    const file = join(real, 'file.txt');
+    writeFileSync(file, 'x');
+    expect(() => deepCwd(on, file)).toThrow('Choose the code folder again before scanning.');
+    rmSync(real, { recursive: true, force: true });
+    expect(() => deepCwd(on, link)).toThrow('Choose the code folder again before scanning.');
   });
 });

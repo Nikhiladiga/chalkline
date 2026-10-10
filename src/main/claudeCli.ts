@@ -8,6 +8,61 @@ import type { ChatMsg, Settings } from '../shared/ipc';
 /** Model aliases `claude --model` accepts; "default" leaves the choice to the CLI. */
 export const CLI_MODELS = ['default', 'opus', 'sonnet', 'haiku'];
 const IDLE_MS = 300_000;
+/** Deep scan: the CLI runs in the chosen folder with read-only tools and reports what it reads. */
+export interface Deep {
+  /** realpath of the chosen folder. */
+  cwd: string;
+  onProgress(text: string): void;
+}
+/** Wall clock for one deep run, shared with Codex. Mutable only so tests can shorten it. */
+export const deepLimits = { wallMs: 15 * 60_000 };
+export const DEEP_WALL_ERROR = 'Deep scan took longer than 15 minutes and was stopped.';
+const MAX_TURNS = 60;
+const DEEP_TOOLS = 'Read,Grep,Glob';
+// Mirrors projectScan SECRET/INSTRUCTIONS/SKIP_DIRS. Read() rules also stop Grep and Glob.
+const SPEC_DENY = [
+  '**/.env',
+  '**/.env.*',
+  '**/*.pem',
+  '**/*.key',
+  '**/*.p12',
+  '**/*.pfx',
+  '**/*.jks',
+  '**/*.keystore',
+  '**/id_rsa*',
+  '**/id_ed25519*',
+  '**/id_ecdsa*',
+  '**/.npmrc',
+  '**/.netrc',
+  '**/.pypirc',
+  '**/credentials*',
+  '**/secret/**',
+  '**/secrets/**',
+  '**/secrets.*',
+  '**/service-account*',
+  '**/service_account*',
+  '**/*.tfstate',
+  '**/*.tfstate.*',
+  '**/.git/**',
+  '**/.ssh/**',
+  '**/.aws/**',
+  '**/.gnupg/**',
+  '**/.kube/**',
+  '**/node_modules/**',
+  '**/CLAUDE.md',
+  '**/AGENTS.md',
+  '**/GEMINI.md',
+  '**/.cursorrules',
+  '**/.claude/**',
+  '**/.codex/**',
+  '**/.agents/**',
+  '**/.cursor/**',
+];
+// The CLI's globs are case-sensitive but macOS volumes are not, so also deny UPPER and Capitalized spellings.
+const capitalize = (g: string) => g.replace(/[a-z]/, (c) => c.toUpperCase());
+export const DENY_READ = [
+  ...new Set([...SPEC_DENY, ...SPEC_DENY.flatMap((g) => [g.toUpperCase(), capitalize(g)])]),
+];
 
 export class CliMissing extends Error {
   constructor(where: string, name = 'Claude Code') {
@@ -100,10 +155,11 @@ export function cliChat(
   req: { messages: ChatMsg[]; schema?: object },
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  deep?: Deep,
 ): Promise<string> {
   signal.throwIfAborted();
   const bin = findClaude(s.cliPath);
-  // A fresh empty cwd: nothing for the CLI to read, and no project CLAUDE.md.
+  // A fresh temp dir for system.md (and deny.json). Without Deep scan it is also the empty cwd.
   const dir = mkdtempSync(join(tmpdir(), 'dg-claude-'));
   const sysFile = join(dir, 'system.md');
   writeFileSync(
@@ -113,6 +169,9 @@ export function cliChat(
       .map((m) => m.content)
       .join('\n\n'),
   );
+  const denyFile = join(dir, 'deny.json');
+  if (deep)
+    writeFileSync(denyFile, JSON.stringify({ permissions: { deny: DENY_READ.map((g) => `Read(${g})`) } }));
   const args = [
     '-p',
     '--output-format',
@@ -122,13 +181,26 @@ export function cliChat(
     '--system-prompt-file',
     sysFile,
     // Isolation: no tools, none of the user's hooks/plugins/skills/CLAUDE.md/MCP, no saved session.
-    '--tools',
-    '',
+    // Deep scan swaps "no tools" for read-only tools confined to cwd, minus secret files.
+    ...(deep
+      ? [
+          '--tools',
+          DEEP_TOOLS,
+          '--allowedTools',
+          DEEP_TOOLS,
+          '--permission-mode',
+          'dontAsk',
+          '--restricted',
+          '--settings',
+          denyFile,
+        ]
+      : ['--tools', '']),
     '--setting-sources',
     '',
     '--strict-mcp-config',
     '--disable-slash-commands',
     '--no-session-persistence',
+    ...(deep ? ['--max-turns', String(MAX_TURNS)] : []),
     ...(s.model && s.model !== 'default' ? ['--model', s.model] : []),
     ...(req.schema ? ['--json-schema', JSON.stringify(req.schema)] : []),
   ];
@@ -143,10 +215,12 @@ export function cliChat(
     let child: ChildProcess;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    let wall: NodeJS.Timeout | undefined;
     const finish = (err: Error | null, text?: string) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(wall);
       signal.removeEventListener('abort', onAbort);
       if (child?.exitCode === null) child.kill('SIGTERM');
       rmSync(dir, { recursive: true, force: true });
@@ -160,8 +234,9 @@ export function cliChat(
     if (signal.aborted) return onAbort();
     signal.addEventListener('abort', onAbort);
 
-    child = spawn(bin, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    child = spawn(bin, args, { cwd: deep?.cwd ?? dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
     bump();
+    if (deep) wall = setTimeout(() => finish(new Error(DEEP_WALL_ERROR)), deepLimits.wallMs);
     let buf = '';
     let stderr = '';
     let text = '';
@@ -185,7 +260,14 @@ export function cliChat(
             onChunk(piece);
           }
         } else if (ev.type === 'result') {
-          if (ev.is_error) finish(new Error(`Claude Code: ${String(ev.result ?? ev.subtype).slice(0, 400)}`));
+          if (ev.subtype === 'error_max_turns')
+            finish(
+              new Error(
+                `Deep scan hit its ${MAX_TURNS}-step limit before finishing. Add a narrower focus (e.g. one service) and retry.`,
+              ),
+            );
+          else if (ev.is_error)
+            finish(new Error(`Claude Code: ${String(ev.result ?? ev.subtype).slice(0, 400)}`));
           else
             finish(
               null,
@@ -199,7 +281,13 @@ export function cliChat(
     child.stderr!.on('data', (c) => (stderr += c));
     child.on('error', (e) => finish(e));
     child.on('close', (code) =>
-      finish(new Error(`Claude Code exited (code ${code}) without a result. ${stderr.trim().slice(0, 400)}`)),
+      finish(
+        new Error(
+          deep && /unknown option/.test(stderr)
+            ? 'Deep scan needs a newer Claude Code. Run "claude update", or turn Deep scan off.'
+            : `Claude Code exited (code ${code}) without a result. ${stderr.trim().slice(0, 400)}`,
+        ),
+      ),
     );
     child.stdin!.on('error', (err) => {
       if ((err as NodeJS.ErrnoException).code !== 'EPIPE') finish(err);
