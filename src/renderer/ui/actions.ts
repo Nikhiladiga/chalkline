@@ -1,12 +1,14 @@
 import { buildHtmlDocument } from '@eraserlabs/render';
+import type { OpenedFile } from '../../shared/ipc';
 import { fitContainers } from '../ai/merge';
-import { toSplit } from '../ai/parse';
+import { docFromJson, toSplit } from '../ai/parse';
 import { deleteElements, duplicateEntities, insertIcon, moveEntities } from '../doc/ops';
 import {
   activateTab,
   addTab,
   DEFAULT_VIEW,
   docApi,
+  isPristine,
   patchTab,
   removeTab,
   tabState,
@@ -17,9 +19,10 @@ import {
 import { serialize, validate } from '../engine/engine';
 import { toSvg } from '../engine/svg';
 import { groundOf } from '../engine/theme';
-import { emptyDoc, SHEET_PAD } from '../engine/types';
+import { type Doc, SHEET_PAD } from '../engine/types';
 import { autoLayout } from '../layout/elk';
 import { iconNames } from './iconCatalog';
+import { isMac } from './platform';
 import { requestFitAfterRender, setPane, toast, useUi } from './uiStore';
 
 const availableIcons = new Set(iconNames);
@@ -96,31 +99,54 @@ export function closeTab(id = useTabs.getState().activeId): void {
   if (wasActive) leaveActiveTab();
   const next = removeTab(id);
   if (wasActive) showTab(next);
+  // Interim until the recovery watcher (Task 5): nothing unsaved is left, so nothing to recover.
+  if (!useTabs.getState().tabs.some((x) => x.dirty)) void api().invoke('recovery:clear');
+}
+
+export function cycleTab(delta: number): void {
+  const { tabs, activeId } = useTabs.getState();
+  const i = tabs.findIndex((t) => t.id === activeId);
+  switchTab(tabs[(i + delta + tabs.length) % tabs.length]!.id);
+}
+
+/**
+ * Ctrl+Tab / Ctrl+Shift+Tab, ⌘⇧] / ⌘⇧[ (macOS only: Ctrl+Shift+[ folds code in CodeMirror elsewhere),
+ * mod+1–8 and mod+9 for the last tab. Returns whether the key was a tab switch.
+ */
+export function switchTabKey(e: KeyboardEvent): boolean {
+  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  if (e.altKey) return false;
+  if (e.ctrlKey && !e.metaKey && e.key === 'Tab') cycleTab(e.shiftKey ? -1 : 1);
+  else if (isMac && e.metaKey && e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft'))
+    cycleTab(e.code === 'BracketRight' ? 1 : -1);
+  else if (mod && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+    const { tabs } = useTabs.getState();
+    const n = Number(e.code.slice(5));
+    const target = n === 9 ? tabs.at(-1) : tabs[n - 1];
+    if (target) switchTab(target.id);
+  } else return false;
+  return true;
 }
 
 const baseName = () =>
   (useDoc.getState().filePath?.split(/[\\/]/).pop() ?? 'diagram').replace(/\.json$/i, '');
 
-export function confirmDiscard(): boolean {
-  return !useDoc.getState().dirty || window.confirm('Discard unsaved changes?');
-}
-
-export function newDoc(): void {
-  if (!confirmDiscard()) return;
-  useDoc.getState().load(emptyDoc(), null);
-  void api().invoke('recovery:clear');
-}
-
+/**
+ * Load text into the tab on screen (tests, recovery). A busy tab (AI run or scan) is never replaced:
+ * the text opens in a new tab instead.
+ */
 export function loadText(text: string, path: string | null): void {
+  let doc: Doc;
   try {
-    const json = JSON.parse(text);
-    const doc = toSplit(json);
-    useDoc.getState().load(typeof json.title === 'string' ? { title: json.title, ...doc } : doc, path);
-    void api().invoke('recovery:clear');
-    requestFitAfterRender();
+    doc = docFromJson(JSON.parse(text));
   } catch (e) {
     toast(`Could not open: ${(e as Error).message}`);
+    return;
   }
+  if (useDoc.getState().busy) newTab();
+  useDoc.getState().load(doc, path);
+  void api().invoke('recovery:clear');
+  requestFitAfterRender();
 }
 
 /** Recovery is internal app state; public diagram files retain the plain document format. */
@@ -140,11 +166,33 @@ export function restoreRecovery(text: string): void {
   }
 }
 
+/** Show a file in a tab: focus the tab that has it already, reuse an untouched idle Untitled, else add one. */
+export function openInTab(text: string, path: string, key: string | null = null): void {
+  const same = useTabs
+    .getState()
+    .tabs.find((t) => (key !== null && t.fileKey === key) || t.filePath === path);
+  if (same) {
+    switchTab(same.id);
+    return;
+  }
+  let doc: Doc;
+  try {
+    doc = docFromJson(JSON.parse(text));
+  } catch (e) {
+    toast(`Could not open: ${(e as Error).message}`);
+    return;
+  }
+  if (!isPristine(useDoc.getState())) newTab();
+  const id = useTabs.getState().activeId;
+  docApi(id).load(doc, path);
+  patchTab(id, { fileKey: key });
+  requestFitAfterRender();
+}
+
 export async function openFile(): Promise<void> {
   try {
-    const session = useDoc.getState().session;
-    const f = await api().invoke('file:open');
-    if (f && useDoc.getState().session === session && confirmDiscard()) loadText(f.content, f.path);
+    const f: OpenedFile | null = await api().invoke('file:open');
+    if (f) openInTab(f.content, f.path, f.key);
   } catch (e) {
     toast(`Could not open: ${ipcMessage(e)}`);
   }

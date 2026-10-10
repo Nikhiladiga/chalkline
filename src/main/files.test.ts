@@ -1,16 +1,17 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dialog } from 'electron';
 import { expect, it, vi } from 'vitest';
-import { saveExport } from './files';
+import { openDialog, saveExport } from './files';
+import { chosenKey } from './savePaths';
 
 const dir = mkdtempSync(join(tmpdir(), 'dg-files-'));
 const userData = join(dir, 'ud');
 mkdirSync(userData);
 vi.mock('electron', () => ({
   app: { getPath: () => userData, addRecentDocument: vi.fn() },
-  dialog: { showSaveDialog: vi.fn() },
+  dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
 }));
 const pick = (filePath: string) =>
   vi.mocked(dialog.showSaveDialog).mockResolvedValueOnce({ canceled: false, filePath } as never);
@@ -37,4 +38,15 @@ it.skipIf(process.platform === 'win32')('writes exports with normal, shareable p
   pick(join(dir, 'shared.png'));
   await saveExport(win, 'diagram', 'png', new Uint8Array([1, 2, 3]));
   expect(statSync(join(dir, 'shared.png')).mode & 0o777).not.toBe(0o600);
+});
+
+it('keys an opened file by its real path, so a symlink and its target are one file', async () => {
+  writeFileSync(join(dir, 'Orders.json'), '{}');
+  symlinkSync(join(dir, 'Orders.json'), join(dir, 'alias.json'));
+  const open = async (p: string) => {
+    vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({ canceled: false, filePaths: [p] } as never);
+    return (await openDialog(win))?.key;
+  };
+  expect(await open(join(dir, 'alias.json'))).toBe(await open(join(dir, 'Orders.json')));
+  expect(await open(join(dir, 'Orders.json'))).toBe(await chosenKey(join(dir, 'Orders.json')));
 });

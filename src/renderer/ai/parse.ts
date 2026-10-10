@@ -36,3 +36,11 @@ export function toSplit(json: unknown): Doc {
   const all = 'elements' in j ? list(j.elements) : [...list(j.entities), ...list(j.connections)];
   return { entities: all.filter((e) => !isConnection(e)), connections: all.filter(isConnection) };
 }
+
+/** A diagram file's JSON as a document: the split form plus its title when it is a string. */
+export function docFromJson(json: unknown): Doc {
+  if (!json || typeof json !== 'object') throw new Error('Not a diagram file.');
+  const doc = toSplit(json);
+  const title = (json as { title?: unknown }).title;
+  return typeof title === 'string' ? { title, ...doc } : doc;
+}

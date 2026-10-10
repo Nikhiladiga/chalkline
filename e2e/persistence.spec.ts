@@ -33,10 +33,10 @@ test('invalid code is dirty, recoverable, and never silently saved as the previo
     await page.getByRole('tab', { name: 'Code', exact: true }).click();
     await expect(page.locator('.cm-content')).toContainText('"entities": [');
     page.once('dialog', (d) => void d.dismiss());
-    await page.evaluate(() => (window as any).__dg.actions.newDoc());
+    await page.evaluate(() => (window as any).__dg.actions.closeTab());
     await expect(activeTab).toContainText('edited');
     page.once('dialog', (d) => void d.accept());
-    await page.evaluate(() => (window as any).__dg.actions.newDoc());
+    await page.evaluate(() => (window as any).__dg.actions.closeTab());
     await expect(activeTab).not.toContainText('edited');
     await expect.poll(() => page.evaluate(() => window.api.invoke('recovery:read'))).toBeNull();
     await expect(page.locator('.cm-content')).toContainText('"connections": []');

@@ -176,7 +176,8 @@ function menu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New', accelerator: 'CmdOrCtrl+N', click: send('new') },
+        { id: 'new', label: 'New', accelerator: 'CmdOrCtrl+N', click: send('new') },
+        { id: 'new-tab', label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: send('newTab') },
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: send('open') },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: send('saveAs') },
@@ -184,14 +185,37 @@ function menu(): void {
         { label: 'Export PNG…', accelerator: 'CmdOrCtrl+E', click: send('exportPng') },
         { label: 'Export SVG…', accelerator: 'CmdOrCtrl+Shift+E', click: send('exportSvg') },
         { type: 'separator' },
-        { role: process.platform === 'darwin' ? 'close' : 'quit' },
+        { id: 'close-tab', label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: send('closeTab') },
+        process.platform === 'darwin'
+          ? { id: 'close-window', role: 'close', label: 'Close Window', accelerator: 'CmdOrCtrl+Shift+W' }
+          : { role: 'quit' },
       ],
     },
     // Undo/redo live in the renderer (canvas vs code editor decide), so only clipboard roles here.
     { label: 'Edit', submenu: [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     {
       label: 'View',
-      submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' }],
+      submenu: [
+        // Listed for discoverability; the renderer handles these keys, so they are not registered here.
+        {
+          id: 'next-tab',
+          label: 'Next Tab',
+          accelerator: 'Ctrl+Tab',
+          registerAccelerator: false,
+          click: send('nextTab'),
+        },
+        {
+          id: 'prev-tab',
+          label: 'Previous Tab',
+          accelerator: 'Ctrl+Shift+Tab',
+          registerAccelerator: false,
+          click: send('prevTab'),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { role: 'togglefullscreen' },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

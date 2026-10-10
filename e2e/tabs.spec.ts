@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -399,4 +399,137 @@ test('an invalid AI draft becomes the code draft of the tab that asked for it', 
   } finally {
     llm.close();
   }
+});
+
+test('Open focuses a file that is already open, even through a symlink, and replaces an untouched Untitled', async () => {
+  const page = await open();
+  const file = join(dir!, 'Orders.json');
+  writeFileSync(file, JSON.stringify(DOC));
+  symlinkSync(file, join(dir!, 'alias.json'));
+  const pick = (path: string) =>
+    app!.evaluate(({ dialog }, p) => {
+      (dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+    }, path);
+  const openFile = () => page.evaluate(() => (window as any).__dg.actions.openFile());
+  await pick(file);
+  await openFile();
+  await expect(tabs(page)).toHaveText(['Orders']); // the untouched Untitled was replaced
+  await newTabButton(page).click();
+  await openFile();
+  await expect(tabs(page)).toHaveText(['Orders', 'Untitled']);
+  await expect(activeTab(page)).toHaveText('Orders');
+  await tabs(page).nth(1).click();
+  await pick(join(dir!, 'alias.json'));
+  await openFile();
+  await expect(tabs(page)).toHaveCount(2);
+  await expect(activeTab(page)).toHaveText('Orders');
+  // An edited Untitled is never replaced: the file opens beside it.
+  await tabs(page).nth(1).click();
+  await page.evaluate(() =>
+    (window as any).__dg.doc
+      .getState()
+      .commit({ entities: [{ tag: 'Shape', id: 'mine', x: 0, y: 0 }], connections: [] }),
+  );
+  const other = join(dir!, 'Billing.json');
+  writeFileSync(other, JSON.stringify(SOLO));
+  await pick(other);
+  await openFile();
+  await expect(tabs(page)).toHaveCount(3);
+  await expect(activeTab(page)).toHaveText('Billing');
+  expect(ids(await docIn(page, 1))).toEqual(['mine']);
+});
+
+test('Open and loadText never replace the document of a busy tab', async () => {
+  const page = await open();
+  await load(page, DOC);
+  await page.evaluate(() =>
+    (window as any).__dg.tabs.setState((s: any) => ({
+      tabs: s.tabs.map((t: any) => ({ ...t, busy: true })),
+    })),
+  );
+  await load(page, SOLO);
+  await expect(tabs(page)).toHaveCount(2);
+  expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+  expect(ids(await docIn(page, 1))).toEqual(['solo']);
+  // openInTab on a busy, otherwise untouched tab also opens beside it.
+  await page.evaluate(() => (window as any).__dg.actions.closeTab());
+  await page.evaluate(() => {
+    const dg = (window as any).__dg;
+    dg.tabs.setState((s: any) => ({ tabs: s.tabs.map((t: any) => ({ ...t, busy: false })) }));
+    dg.actions.loadText('{"entities":[],"connections":[]}', null);
+    dg.tabs.setState((s: any) => ({ tabs: s.tabs.map((t: any) => ({ ...t, busy: true })) }));
+    dg.actions.openInTab(JSON.stringify({ entities: [], connections: [] }), '/tmp/x.json', 'k');
+  });
+  await expect(tabs(page)).toHaveCount(2);
+});
+
+test('keyboard switches tabs, also from a text field, but not while Settings is open', async () => {
+  const page = await open();
+  for (const doc of [DOC, SOLO]) {
+    await newTabButton(page).click();
+    await load(page, doc);
+  }
+  const at = () =>
+    page.evaluate(() => {
+      const s = (window as any).__dg.tabs.getState();
+      return s.tabs.findIndex((t: any) => t.id === s.activeId);
+    });
+  await page.locator('.canvas').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('Control+Tab');
+  expect(await at()).toBe(0); // wraps
+  await page.keyboard.press('Control+Shift+Tab');
+  expect(await at()).toBe(2);
+  await page.keyboard.press(`${mod}+1`);
+  expect(await at()).toBe(0);
+  await page.keyboard.press(`${mod}+9`);
+  expect(await at()).toBe(2);
+  await page.keyboard.press(`${mod}+5`); // there is no fifth tab
+  expect(await at()).toBe(2);
+  if (process.platform === 'darwin') {
+    await page.keyboard.press('Meta+Shift+BracketLeft');
+    expect(await at()).toBe(1);
+    await page.keyboard.press('Meta+Shift+BracketRight');
+    expect(await at()).toBe(2);
+  }
+  await page.keyboard.press(`${mod}+2`);
+  expect(await at()).toBe(1);
+  await page.locator('[data-testid="ai-prompt"]:visible').click();
+  await page.keyboard.type('a1[');
+  await page.keyboard.press(`${mod}+1`);
+  expect(await at()).toBe(0);
+  await page.keyboard.press(`${mod}+2`);
+  await expect(page.locator('[data-testid="ai-prompt"]:visible')).toHaveValue('a1[');
+  await page.keyboard.press(`${mod}+Comma`);
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await page.keyboard.press('Control+Tab');
+  expect(await at()).toBe(1);
+});
+
+test('the menu has New Tab, Close Tab and tab switching; closing the last tab keeps the window', async () => {
+  const page = await open();
+  const item = (id: string) =>
+    app!.evaluate(({ Menu }, i) => {
+      const m = Menu.getApplicationMenu()!.getMenuItemById(i)!;
+      return { label: m.label, accelerator: m.accelerator ?? null };
+    }, id);
+  const click = (id: string) =>
+    app!.evaluate(({ Menu }, i) => {
+      Menu.getApplicationMenu()!.getMenuItemById(i)!.click();
+    }, id);
+  expect(await item('new-tab')).toEqual({ label: 'New Tab', accelerator: 'CmdOrCtrl+T' });
+  expect(await item('close-tab')).toEqual({ label: 'Close Tab', accelerator: 'CmdOrCtrl+W' });
+  expect(await item('next-tab')).toEqual({ label: 'Next Tab', accelerator: 'Ctrl+Tab' });
+  expect(await item('prev-tab')).toEqual({ label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab' });
+  if (process.platform === 'darwin')
+    expect(await item('close-window')).toEqual({ label: 'Close Window', accelerator: 'CmdOrCtrl+Shift+W' });
+  await click('new-tab');
+  await click('new');
+  await expect(tabs(page)).toHaveText(['Untitled', 'Untitled 2', 'Untitled 3']);
+  await click('prev-tab');
+  await expect(activeTab(page)).toHaveText('Untitled 2');
+  await click('next-tab');
+  await expect(activeTab(page)).toHaveText('Untitled 3');
+  for (let i = 0; i < 3; i++) await click('close-tab');
+  await expect(tabs(page)).toHaveText(['Untitled']);
+  expect(await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
 });

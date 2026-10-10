@@ -26,7 +26,7 @@ const choose = async (path: string) => chosen.add(await chosenKey(path));
 async function openPath(path: string): Promise<OpenedFile> {
   const content = await readFile(path, 'utf8');
   app.addRecentDocument(path);
-  return { path, content };
+  return { path, content, key: await chosenKey(path) };
 }
 
 export async function openDialog(win: BrowserWindow): Promise<OpenedFile | null> {

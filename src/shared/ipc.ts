@@ -103,6 +103,8 @@ export function parseArgs<C extends Channel>(channel: C, arg: unknown): Args<C> 
 export interface OpenedFile {
   path: string;
   content: string;
+  /** Main's identity for the file (realpath, case-folded on macOS/Windows): the same file opens once. */
+  key: string;
 }
 
 /** The `window.api` surface the preload exposes. */

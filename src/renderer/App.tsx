@@ -6,15 +6,18 @@ import { applyTheme } from './engine/theme';
 import { checkLayout } from './layout/quality';
 import * as actions from './ui/actions';
 import {
+  closeTab,
+  cycleTab,
   deleteSelection,
   duplicateSelection,
   exportPng,
   exportSvg,
-  newDoc,
+  newTab,
   nudge,
   openFile,
   restoreRecovery,
   save,
+  switchTabKey,
 } from './ui/actions';
 import { Canvas } from './ui/Canvas';
 import { DetailsPane } from './ui/DetailsPane';
@@ -53,7 +56,10 @@ function useShortcuts(): void {
       t instanceof HTMLElement &&
       (t.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(t.tagName) || !!t.closest('.cm-editor'));
     const onKey = (e: KeyboardEvent) => {
-      if (typing(e.target) || useUi.getState().settingsOpen || useUi.getState().iconPick) return;
+      if (useUi.getState().settingsOpen || useUi.getState().iconPick) return;
+      // Tab switching works from text fields too, like a browser: none of these keys types anything.
+      if (switchTabKey(e)) return e.preventDefault();
+      if (typing(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
       const store = useDoc.getState();
       const step = e.shiftKey ? 10 : 1;
@@ -86,7 +92,10 @@ function useShortcuts(): void {
 function useMenuAndFiles(): void {
   useEffect(() => {
     const off = window.api.on('menu', (action: string) => {
-      if (action === 'new') newDoc();
+      if (action === 'new' || action === 'newTab') newTab();
+      else if (action === 'closeTab') closeTab();
+      else if (action === 'nextTab') cycleTab(1);
+      else if (action === 'prevTab') cycleTab(-1);
       else if (action === 'open') void openFile();
       else if (action === 'save') void save();
       else if (action === 'saveAs') void save(true);
