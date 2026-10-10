@@ -3,8 +3,10 @@ import { fitContainers } from '../ai/merge';
 import {
   CONTAINER_TAGS,
   connect,
+  copyElements,
   dragEntities,
   getPrimaryText,
+  pasteElements,
   reparent,
   resizeEntity,
   selectionRoots,
@@ -21,6 +23,7 @@ import { ConnectionPorts } from './ConnectionPorts';
 import { clearPreview, showPreview } from './dragPreview';
 import { ICON_MIME } from './iconCatalog';
 import { IconMinus, IconPlus } from './icons';
+import { isMac } from './platform';
 import { easeView, type RenderInfo, requestFit, useUi } from './uiStore';
 
 const MIN_ZOOM = 0.1;
@@ -45,6 +48,8 @@ type Gesture =
       /** Current offset in document px, snapped and rounded. */
       dx: number;
       dy: number;
+      /** Alt is held: the preview shows copies and the originals stay. */
+      copy: boolean;
       moved: boolean;
     }
   | {
@@ -175,7 +180,7 @@ export function Canvas() {
     }
     const g = gesture.current;
     if (g?.kind === 'move' && g.moved && render)
-      showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: false });
+      showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: g.copy });
   }, [render, errors]);
 
   const toDoc = useCallback((clientX: number, clientY: number) => {
@@ -271,21 +276,31 @@ export function Canvas() {
     force((n) => n + 1);
   };
 
-  /** Commit a move as one undo step; the preview stays until this drop's render lands. */
-  const drop = (g: MoveGesture) => {
+  /** Commit a move, or with Alt a copy, as one undo step; the preview stays until this drop's render lands. */
+  const drop = (g: MoveGesture, copy: boolean) => {
     const t = tabState(g.tabId);
     // Nothing moved, or the document changed under the drag (an AI result): keep the document as it is.
     if (!t || t.doc !== g.doc0 || (!g.dx && !g.dy)) return endPreview();
-    const { doc: moved, offset } = dragEntities(g.doc0, g.ids, g.dx, g.dy);
+    let base = g.doc0;
+    let roots = g.ids;
+    const boxes0 = { ...g.render0.boxes };
+    if (copy) {
+      const pasted = pasteElements(g.doc0, copyElements(g.doc0, g.ids), 0, 0, true);
+      base = pasted.doc;
+      roots = pasted.newIds;
+      for (const [from, to] of pasted.idMap) if (boxes0[from]) boxes0[to] = boxes0[from]!;
+    }
+    const moving = withDescendants(base, roots);
+    const { doc: moved, offset } = dragEntities(base, roots, g.dx, g.dy);
     const boxes = Object.fromEntries(
-      Object.entries(g.render0.boxes).map(([id, b]) => {
-        const k = g.moving.has(id) ? 1 : 0;
+      Object.entries(boxes0).map(([id, b]) => {
+        const k = moving.has(id) ? 1 : 0;
         return [id, { ...b, x: b.x + offset.x + k * g.dx, y: b.y + offset.y + k * g.dy }];
       }),
     );
     // Membership changes on drop: each root joins the smallest container under its centre, or the root.
     let d = moved;
-    for (const id of g.ids) d = reparent(d, id, boxes);
+    for (const id of roots) d = reparent(d, id, boxes);
     const ui = useUi.getState();
     settle.current = {
       render: ui.render,
@@ -293,7 +308,9 @@ export function Canvas() {
       // A drop past x/y = 0 shifts the whole document; pan by the same amount (in diagram units) once its render lands.
       shift: offset.x || offset.y ? offset : null,
     };
-    docApi(g.tabId).commit(fitContainers(d, boxes));
+    const api = docApi(g.tabId);
+    api.commit(fitContainers(d, boxes));
+    if (copy) api.select({ entities: roots, connections: [] });
   };
 
   // One window-level move/up pair drives every gesture.
@@ -314,7 +331,9 @@ export function Canvas() {
         const boxes0 = g.render0.boxes;
         const mine = g.ids.map((id) => boxes0[id]).filter((b): b is Box => !!b);
         let guides: { x?: number; y?: number }[] = [];
-        if (mine.length && !e.altKey) {
+        // Alt drops a copy (the originals stay); ⌘ on macOS, Ctrl elsewhere, turns snapping off.
+        g.copy = e.altKey;
+        if (mine.length && !(isMac ? e.metaKey : e.ctrlKey)) {
           const left = Math.min(...mine.map((b) => b.x));
           const top = Math.min(...mine.map((b) => b.y));
           const bounds = {
@@ -324,7 +343,7 @@ export function Canvas() {
             height: Math.max(...mine.map((b) => b.y + b.height)) - top,
           };
           const others = Object.entries(boxes0)
-            .filter(([id]) => !g.moving.has(id))
+            .filter(([id]) => g.copy || !g.moving.has(id))
             .map(([, b]) => b);
           const s = snap(bounds, others, 6 / z);
           dx += s.dx;
@@ -335,7 +354,7 @@ export function Canvas() {
         g.dy = Math.round(dy);
         setGuides(guides);
         // No document change and no engine render per move: only the preview moves (dragPreview.ts).
-        showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: false });
+        showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: g.copy });
       } else if (g.kind === 'resize') {
         // An outline follows the handle; the engine renders once, on release (as in draw.io).
         g.width = Math.max(8, Math.round(g.box0.width + (e.clientX - g.sx) / z));
@@ -382,7 +401,7 @@ export function Canvas() {
       if (!g) return;
       const store = useDoc.getState();
       if (g.kind === 'move') {
-        if (g.moved) drop(g);
+        if (g.moved) drop(g, e.altKey);
       } else if (g.kind === 'resize') {
         setSizing(null);
         const t = tabState(g.tabId);
@@ -469,6 +488,7 @@ export function Canvas() {
       render0: r,
       dx: 0,
       dy: 0,
+      copy: false,
       moved: false,
     };
   };

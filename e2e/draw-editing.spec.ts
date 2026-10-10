@@ -121,3 +121,40 @@ test('pasting outside JSON validates it; plain text is ignored; text fields keep
   await expect(page.locator('.cm-content')).toHaveText('hello');
   expect(await docOf(page)).toEqual(before);
 });
+
+const center = async (page: Page, id: string) => {
+  const b = (await page.locator(`.hit[data-id="${id}"]`).boundingBox())!;
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+};
+const settled = (page: Page) => page.waitForFunction(() => !document.querySelector('[data-preview]'));
+
+test('Alt-drag drops a copy and leaves the original; Escape leaves no ghost', async () => {
+  const page = await open();
+  const a = await center(page, 'a');
+  const original = await docOf(page);
+  const altDrag = async (dx: number, finish: () => Promise<void>) => {
+    await page.keyboard.down('Alt');
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(a.x + dx, a.y + 140, { steps: 8 });
+    await expect(page.locator('[data-preview-clone]').first()).toBeAttached();
+    expect(Math.abs((await center(page, 'a')).x - a.x)).toBeLessThan(1); // the original stays
+    await finish();
+    await page.keyboard.up('Alt');
+  };
+  await altDrag(150, () => page.keyboard.press('Escape').then(() => page.mouse.up()));
+  await expect(page.locator('[data-preview-clone]')).toHaveCount(0);
+  expect(await docOf(page)).toEqual(original);
+  expect(await past(page)).toBe(0);
+  await altDrag(150, () => page.mouse.up());
+  await expect.poll(() => ids(page)).toEqual(['a', 'b', 'c', 'a-2']);
+  const copy = await entity(page, 'a-2');
+  expect(Math.abs(copy.x - 250)).toBeLessThanOrEqual(7);
+  expect(Math.abs(copy.y - 240)).toBeLessThanOrEqual(7);
+  expect(await entity(page, 'a')).toMatchObject({ x: 100, y: 100 });
+  expect(await page.evaluate(() => (window as any).__dg.doc.getState().selection.entities)).toEqual(['a-2']);
+  await settled(page);
+  await expect(page.locator('[data-preview-clone]')).toHaveCount(0);
+  await page.keyboard.press(`${mod}+z`);
+  expect(await docOf(page)).toEqual(original);
+});

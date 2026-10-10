@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { launch } from './launch';
 
-// Holding this key while dragging turns snapping off.
-const snapOff = 'Alt';
+// Snapping off while dragging: ⌘ on macOS, Ctrl elsewhere (Alt drops a copy).
+const snapOff = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 test('an icon can leave a group across the origin, rejoin it, and undo without losing connections', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dg-group-drag-'));

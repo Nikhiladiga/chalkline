@@ -9,6 +9,8 @@ const SHORTCUTS: [string, string][] = [
   ['Redo', `${mod}⇧Z`],
   ['Copy / cut / paste', `${mod}C / ${mod}X / ${mod}V`],
   ['Duplicate selection', `${mod}D`],
+  ['Drop a copy while dragging', isMac ? '⌥-drag' : 'Alt-drag'],
+  ['Drag without snapping', `${mod}-drag`],
   ['Select all', `${mod}A`],
   ['Delete selection', '⌫'],
   ['Nudge selection (Shift for 10px)', 'Arrow keys'],
