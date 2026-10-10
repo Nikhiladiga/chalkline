@@ -101,7 +101,7 @@ function useMenuAndFiles(): void {
   useEffect(() => {
     const off = window.api.on('menu', (action: string) => {
       // Tab-changing actions wait for the modal: the icon picker writes into the tab on screen.
-      if (modalOpen() && /^(new|newTab|closeTab|nextTab|prevTab)$/.test(action)) return;
+      if (modalOpen() && /^(new|newTab|closeTab|nextTab|prevTab|open)$/.test(action)) return;
       if (action === 'new' || action === 'newTab') newTab();
       else if (action === 'closeTab') closeTab();
       else if (action === 'nextTab') cycleTab(1);

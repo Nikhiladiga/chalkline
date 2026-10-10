@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getPrimaryText, setPrimaryText, setProp } from '../doc/ops';
-import { useDoc } from '../doc/store';
+import { docApi, tabState, useDoc, useTabs } from '../doc/store';
 import { tagSchema } from '../engine/engine';
 import { deleteSelection } from './actions';
 import { IconTrash } from './icons';
@@ -168,6 +168,7 @@ function Draft({
 
 export function Inspector() {
   const doc = useDoc((s) => s.doc);
+  const tabId = useTabs((s) => s.activeId);
   const selection = useDoc((s) => s.selection);
   const entity =
     selection.entities.length === 1 ? doc.entities.find((e) => e.id === selection.entities[0]) : undefined;
@@ -196,9 +197,10 @@ export function Inspector() {
   }
   const target = (entity ?? conn)!;
   const ref = entity ? { entity: entity.id } : { connection: connIdx! };
+  // Bound to the tab this inspector shows: a deferred write (the icon picker) never lands in another tab.
   const update = (key: string, value: unknown) => {
-    const s = useDoc.getState();
-    s.commit(setProp(s.doc, ref, key, value));
+    const t = tabState(tabId);
+    if (t) docApi(tabId).commit(setProp(t.doc, ref, key, value));
   };
   const hasText = entity && entity.tag !== 'Legend';
 

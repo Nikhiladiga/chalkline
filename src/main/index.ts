@@ -178,7 +178,7 @@ function menu(): void {
       submenu: [
         { id: 'new', label: 'New', accelerator: 'CmdOrCtrl+N', click: send('new') },
         { id: 'new-tab', label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: send('newTab') },
-        { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: send('open') },
+        { id: 'open', label: 'Open…', accelerator: 'CmdOrCtrl+O', click: send('open') },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: send('saveAs') },
         { type: 'separator' },

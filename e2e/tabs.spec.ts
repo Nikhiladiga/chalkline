@@ -522,11 +522,41 @@ test('the icon picker keeps the tab it was opened in, even if a menu action arri
   await page.getByTestId('inspector').getByRole('button', { name: 'server', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Choose an icon' });
   await expect(modal).toBeVisible();
-  for (const id of ['next-tab', 'prev-tab', 'new-tab', 'close-tab', 'new'])
+  const file = join(dir!, 'Other.json');
+  writeFileSync(file, JSON.stringify(SOLO));
+  await app!.evaluate(({ dialog }, p) => {
+    (dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+  }, file);
+  for (const id of ['next-tab', 'prev-tab', 'new-tab', 'close-tab', 'new', 'open'])
     await app!.evaluate(({ Menu }, i) => Menu.getApplicationMenu()!.getMenuItemById(i)!.click(), id);
   await page.keyboard.press('Control+Tab');
   await expect(tabs(page)).toHaveCount(2);
   await expect(activeTab(page)).toHaveText('Untitled');
+  await modal.getByRole('textbox').fill('lambda');
+  await modal.locator('.icon-cell').first().click();
+  expect((await docIn(page, 0)).entities[0].icon).not.toBe('server');
+  expect(await docIn(page, 1)).toEqual({ entities: [], connections: [] });
+});
+
+test('an icon pick lands in the tab that opened the picker, even if another tab became active', async () => {
+  const page = await open();
+  await load(page, {
+    entities: [{ tag: 'Icon', id: 'node', x: 100, y: 100, icon: 'server' }],
+    connections: [],
+  });
+  await newTabButton(page).click();
+  await tabs(page).nth(0).click();
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().select({ entities: ['node'], connections: [] }),
+  );
+  await page.getByTestId('inspector').getByRole('button', { name: 'server', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Choose an icon' });
+  await expect(modal).toBeVisible();
+  // Any means of changing the active tab behind the modal (here: directly in the store).
+  await page.evaluate(() => {
+    const s = (window as any).__dg.tabs;
+    s.setState({ activeId: s.getState().tabs[1].id });
+  });
   await modal.getByRole('textbox').fill('lambda');
   await modal.locator('.icon-cell').first().click();
   expect((await docIn(page, 0)).entities[0].icon).not.toBe('server');
