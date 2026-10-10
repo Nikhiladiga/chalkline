@@ -137,10 +137,12 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
   if (boxes) {
     const q = checkLayout(doc, boxes);
     const messy = q.overlaps.length > 0 || q.outside.length > 0;
-    if (messy && (req.mode === 'generate' || req.allowMove)) {
-      deps.onStage('layout fallback');
+    // A new deep diagram is too dense for model-picked coordinates: always lay it out.
+    const deepNew = req.deep && req.mode === 'generate';
+    if ((messy || deepNew) && (req.mode === 'generate' || req.allowMove)) {
+      deps.onStage(messy ? 'layout fallback' : 'auto-layout');
       doc = await autoLayout(doc, boxes);
-      laidOut = true;
+      laidOut = messy;
     } else if (messy) {
       const before = new Set(req.current.entities.map((e) => e.id));
       doc = placeNew(

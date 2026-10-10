@@ -360,6 +360,104 @@ describe('runAi', () => {
     if (r.ok) expect(r.laidOut).toBe(true);
   });
 
+  // Acceptance run: a deep result's model-picked coordinates are crowded even without overlaps.
+  describe('deep auto-layout', () => {
+    const icon = (id: string, containerId: string | undefined, x: number, y: number) => ({
+      tag: 'Icon',
+      id,
+      icon: 'server',
+      x,
+      y,
+      ...(containerId ? { containerId } : {}),
+      texts: [{ text: id }],
+    });
+    const group = (id: string, containerId: string | undefined, x: number, w: number) => ({
+      tag: 'Group',
+      id,
+      title: { text: id },
+      x,
+      y: 40,
+      width: w,
+      height: 900,
+      ...(containerId ? { containerId } : {}),
+    });
+    const service = JSON.stringify({
+      entities: [
+        icon('client', undefined, 0, 400),
+        group('system', undefined, 180, 1100),
+        group('api', 'system', 220, 220),
+        icon('upload', 'api', 300, 180),
+        icon('progress', 'api', 300, 400),
+        group('pipeline', 'system', 520, 300),
+        icon('bus', 'pipeline', 580, 300),
+        icon('adapter', 'pipeline', 700, 500),
+        icon('postgres', 'system', 1000, 200),
+        { tag: 'Textbox', id: 'note', x: 0, y: 1000, width: 640, text: 'Sources: src/app.ts:1' },
+      ],
+      connections: [
+        { from: 'client', to: 'upload', label: 'HTTP POST' },
+        { from: 'client', to: 'progress', label: 'HTTP GET' },
+        { from: 'upload', to: 'bus', label: 'publish' },
+        { from: 'bus', to: 'adapter', label: 'on init' },
+        { from: 'upload', to: 'postgres', label: 'SQL write' },
+        { from: 'adapter', to: 'postgres' },
+        { from: 'progress', to: 'postgres', label: 'SQL read' },
+      ],
+    });
+    const original = JSON.parse(service) as Doc;
+    const at = (doc: Doc) => doc.entities.map((e) => [e.id, e.x, e.y]);
+    // Real footprints: groups at their own size, so nothing is "messy" and only deep forces a layout.
+    const measure = async (doc: Doc) =>
+      Object.fromEntries(
+        doc.entities.map((e) => [e.id, { x: e.x!, y: e.y!, width: e.width ?? 50, height: e.height ?? 50 }]),
+      );
+
+    it('lays out a fresh deep diagram and keeps every child inside its group', async () => {
+      const { d, stages } = deps([service], { measure });
+      const r = await runAi(d, {
+        mode: 'generate',
+        prompt: 'x',
+        current: empty,
+        allowMove: false,
+        deep: true,
+      });
+      if (!r.ok) throw new Error(r.message);
+      expect(stages).toContain('auto-layout');
+      expect(r.laidOut).toBe(false);
+      expect(at(r.doc)).not.toEqual(at(original));
+      const byId = new Map(r.doc.entities.map((e) => [e.id, e]));
+      for (const e of r.doc.entities) {
+        expect(e.containerId).toBe(original.entities.find((o) => o.id === e.id)!.containerId);
+        const p = e.containerId ? byId.get(e.containerId) : undefined;
+        if (!p) continue;
+        expect(e.x).toBeGreaterThanOrEqual(p.x!);
+        expect(e.y).toBeGreaterThanOrEqual(p.y!);
+        expect(e.x).toBeLessThan(p.x! + p.width!);
+        expect(e.y).toBeLessThan(p.y! + p.height!);
+      }
+    });
+
+    it('leaves a non-deep generation and a deep edit where the model put them', async () => {
+      const plain = deps([service], { measure });
+      const r = await runAi(plain.d, { mode: 'generate', prompt: 'x', current: empty, allowMove: false });
+      if (!r.ok) throw new Error(r.message);
+      expect(plain.stages).not.toContain('auto-layout');
+      expect(at(r.doc)).toEqual(at(original));
+
+      const edit = deps([service], { measure });
+      const e = await runAi(edit.d, {
+        mode: 'edit',
+        prompt: 'update',
+        current: original,
+        allowMove: true,
+        deep: true,
+      });
+      if (!e.ok) throw new Error(e.message);
+      expect(edit.stages).not.toContain('auto-layout');
+      expect(at(e.doc)).toEqual(at(original));
+    });
+  });
+
   it('keeps existing positions in edit mode', async () => {
     const current: Doc = {
       entities: [{ tag: 'Icon', id: 'api', x: 5, y: 7, icon: 'aws-lambda' }],
