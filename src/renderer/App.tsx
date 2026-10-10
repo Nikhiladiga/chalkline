@@ -4,7 +4,6 @@ import * as engine from './engine/engine';
 import { render } from './engine/engine';
 import { applyTheme } from './engine/theme';
 import { checkLayout } from './layout/quality';
-import { AiPanel } from './ui/AiPanel';
 import * as actions from './ui/actions';
 import {
   deleteSelection,
@@ -18,11 +17,12 @@ import {
   save,
 } from './ui/actions';
 import { Canvas } from './ui/Canvas';
+import { DetailsPane } from './ui/DetailsPane';
 import { IconPicker } from './ui/IconPicker';
-import { Inspector } from './ui/Inspector';
 import { LeftSidebar } from './ui/LeftSidebar';
-import { PaneToggle } from './ui/PaneToggle';
+import { togglePane } from './ui/PaneToggle';
 import { Settings } from './ui/Settings';
+import { StatusBar } from './ui/StatusBar';
 import { Toolbar } from './ui/Toolbar';
 import { requestFit, useUi } from './ui/uiStore';
 
@@ -42,7 +42,7 @@ function useRenderLoop(): void {
       if (!r.ok && r.stale) return;
       const ui = useUi.getState();
       if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
-      else ui.set({ errors: r.errors, warnings: r.warnings });
+      else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });
     });
   }, [doc, tick, theme]);
 }
@@ -63,6 +63,11 @@ function useShortcuts(): void {
       else if (mod && k === 'd') duplicateSelection();
       else if (mod && k === 'a')
         store.select({ entities: store.doc.entities.map((x) => x.id), connections: [] });
+      else if (mod && e.key === ',') useUi.getState().set({ settingsOpen: true });
+      else if (!mod && e.key === '[') togglePane('left');
+      else if (!mod && e.key === ']') togglePane('right');
+      else if (!mod && e.key === '?')
+        document.querySelector<HTMLButtonElement>('[data-testid="shortcuts-menu"]')?.click();
       else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) deleteSelection();
       else if (e.key === 'Escape') store.select({ entities: [], connections: [] });
       else if (e.key === 'ArrowLeft') nudge(-step, 0);
@@ -139,55 +144,25 @@ export function App() {
   useMenuAndFiles();
   const showCode = useUi((s) => s.showCode);
   const showAi = useUi((s) => s.showAi);
-  const r = useUi((s) => s.render);
-  const errors = useUi((s) => s.errors);
-  const warnings = useUi((s) => s.warnings);
   const toastMsg = useUi((s) => s.toast);
-  const count = useDoc((s) => s.doc.entities.length);
+  const theme = useUi((s) => s.theme);
 
   return (
-    <div className="app">
+    <div className={`app${testMode ? ' test-mode' : ''}`} data-theme={theme}>
       <Toolbar />
       <main className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}>
         <LeftSidebar />
         <Canvas />
-        <aside className="pane right" aria-label="Inspector and AI">
-          {showAi ? (
-            <>
-              <div className="pane-head">
-                Details
-                <span className="spacer" />
-                <PaneToggle side="right" open />
-              </div>
-              <div className="pane-body">
-                <Inspector />
-                <AiPanel />
-              </div>
-            </>
-          ) : (
-            <PaneToggle side="right" open={false} />
-          )}
-        </aside>
+        <DetailsPane />
+        {toastMsg && (
+          <div className="toast" role="status">
+            {toastMsg}
+          </div>
+        )}
       </main>
-      <footer className="status">
-        <span className={errors.length ? 'bad' : 'ok'}>
-          {errors.length ? `${errors.length} error${errors.length > 1 ? 's' : ''}` : 'Valid'}
-          {warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : ''}
-        </span>
-        <span>
-          {count} element{count === 1 ? '' : 's'}
-        </span>
-        {r && <span>Rendered in {r.ms} ms</span>}
-        <span style={{ flex: 1 }} />
-        <span>Drag to move · Space-drag to pan · ⌘-scroll to zoom · double-click to edit text</span>
-      </footer>
+      <StatusBar />
       <Settings />
       <IconPicker />
-      {toastMsg && (
-        <div className="toast" role="status">
-          {toastMsg}
-        </div>
-      )}
     </div>
   );
 }

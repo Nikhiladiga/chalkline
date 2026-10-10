@@ -27,12 +27,15 @@ require('readline').createInterface({input: process.stdin}).on('line', line => {
   });
   try {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await page.getByLabel('AI provider').selectOption('cli');
-    const harness = page.getByLabel('Installed harness');
-    await expect(harness.locator('option', { hasText: 'Codex CLI (installed)' })).toHaveCount(1);
-    await expect(harness.locator('option', { hasText: 'Claude Code CLI (installed)' })).toHaveCount(1);
-    await harness.selectOption('codex');
-    await expect(page.getByLabel('API key', { exact: true })).toHaveCount(0);
+    await page.getByRole('radio', { name: 'Installed CLI', exact: true }).click();
+    const harness = page.getByRole('radiogroup', { name: 'Harness' });
+    const codex = harness.getByRole('radio', { name: 'Codex CLI', exact: true });
+    await expect(codex).toHaveAccessibleDescription(/Installed/);
+    await expect(
+      harness.getByRole('radio', { name: 'Claude Code CLI', exact: true }),
+    ).toHaveAccessibleDescription(/Installed/);
+    await codex.click();
+    await expect(page.getByLabel(/^API key/)).toHaveCount(0);
     await page.getByRole('button', { name: 'Test connection' }).click();
     await expect(page.getByText('Codex CLI found.', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: 'Save settings' }).click();
@@ -45,7 +48,10 @@ require('readline').createInterface({input: process.stdin}).on('line', line => {
     await expect(models.locator('option', { hasText: 'codex-model-a' })).toHaveCount(0);
     await expect(models).toHaveValue('codex-model-b');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByLabel('Installed harness')).toHaveValue('codex');
+    await expect(page.getByRole('radio', { name: 'Codex CLI', exact: true })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });

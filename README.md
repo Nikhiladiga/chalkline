@@ -23,7 +23,7 @@
 
 Chalkline is a desktop application for creating and editing architecture diagrams. Describe a system, choose a code folder, or draw directly with service icons and connectors. Refine the result visually or in JSON, then export it for documentation and presentations.
 
-Use an installed Codex or Claude Code CLI with its existing login, a local model through LM Studio, or an OpenAI-compatible API. You can also draw manually without configuring AI.
+Use an installed Codex or Claude Code CLI with its existing login, or any OpenAI-compatible API, local or hosted. You can also draw manually without configuring AI.
 
 **Status:** beta. Download macOS (Apple Silicon and Intel) and Windows x64 builds from the [latest release](https://github.com/Nikhiladiga/chalkline/releases/latest). Website: https://nikhiladiga.github.io/chalkline
 
@@ -40,7 +40,7 @@ Builds are not code-signed yet:
 
 - Generate diagrams from natural-language descriptions and refine them with follow-up instructions.
 - Turn a code folder into a runtime architecture overview, with source references and scan coverage details.
-- Choose a supported installed harness, refresh available models, or connect a local/API provider.
+- Choose an installed CLI harness or an OpenAI-compatible API, and refresh available models.
 - Search **3,856 icons** across AWS, Azure, Google Cloud and general service/brand categories; drag them onto the canvas.
 - Connect icons through **eight connection ports**, with a live preview and target snapping.
 - Move, resize, select, duplicate and delete elements; edit captions and drag elements into or out of groups.
@@ -56,12 +56,11 @@ Builds are not code-signed yet:
 | --- | --- | --- |
 | **Codex CLI** | Installed CLI with a working saved login; no app API key required. | Dynamic catalog queried from the installed CLI, plus its built-in default. |
 | **Claude Code CLI** | Installed CLI with a working saved login; no app API key required. | Supported aliases such as default, Sonnet, Opus and Haiku. |
-| **LM Studio** | A loaded model and a running local API server. | Models returned by the configured server. |
-| **OpenAI-compatible API** | Compatible base URL and API key when required. | Models returned by the endpoint, or a manually entered model ID. |
+| **OpenAI-compatible API** | A running server or hosted endpoint; an API key only if the server requires one. | Models returned by the endpoint, or a manually entered model ID. |
 
-In **Settings**, choose **Local CLI (existing login)** and select an installed harness. Codex and Claude Code are the two supported harnesses today. Enter an executable path if automatic discovery cannot find your installation. Other installed CLIs are not yet integrated.
+In **Settings**, choose **Installed CLI** and pick the Claude Code or Codex card. Each card shows whether the CLI was found and where. Enter an executable path if automatic discovery cannot find your installation. Other installed CLIs are not yet integrated.
 
-For LM Studio, the default server URL is `http://127.0.0.1:1234/v1`. For API providers, set the base URL and credentials in Settings. Select a model in the AI panel and use **Refresh** to reload its list.
+Or choose **API** and pick a preset, which fills the base URL: **LM Studio** (`http://127.0.0.1:1234/v1`), **Ollama** (`http://127.0.0.1:11434/v1`), **OpenAI** (`https://api.openai.com/v1`) or **Custom** for any other OpenAI-compatible server. The API key is optional and is saved for that server only; other servers never receive it. Select a model in the AI panel and use **Refresh** to reload its list.
 
 An installed CLI uses its provider's model service; it does not necessarily run AI locally. CLI generation disables filesystem tools, plugins, MCP and project rules. Codex requires support for `--ignore-user-config` and `--ignore-rules`; personal model/provider configuration is not applied to generation.
 

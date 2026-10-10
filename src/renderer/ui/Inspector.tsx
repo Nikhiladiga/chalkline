@@ -4,7 +4,7 @@ import { useDoc } from '../doc/store';
 import { tagSchema } from '../engine/engine';
 import { deleteSelection } from './actions';
 import { IconTrash } from './icons';
-import { type Field, fieldsFor } from './schemaFields';
+import { type Field, fieldsFor, labelOf } from './schemaFields';
 import { useUi } from './uiStore';
 
 const TOKENS: [string, string][] = [
@@ -59,13 +59,16 @@ function FieldInput({
     return (
       <div className="row">
         {typeof value === 'string' && (
-          <img
-            src={`icons://i/${value}.svg`}
-            alt=""
-            width={24}
-            height={24}
-            style={{ background: '#fff', borderRadius: 6, padding: 2 }}
-          />
+          <span className="icon-thumb">
+            <img
+              key={value}
+              src={`icons://i/${value}.svg`}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.hidden = true; // missing icon: leave the neutral tile
+              }}
+            />
+          </span>
         )}
         <button
           type="button"
@@ -86,7 +89,7 @@ function FieldInput({
   return (
     <>
       {field.kind === 'color' && PALETTE_KEYS.has(field.key) && (
-        <div className="swatches" style={{ marginBottom: 6 }}>
+        <div className="swatches">
           {TOKENS.map(([token, hex]) => (
             <button
               key={token}
@@ -148,7 +151,7 @@ function Draft({
   // biome-ignore lint/correctness/useExhaustiveDependencies: unmount-only; reads refs.
   useEffect(() => commit, []);
   const props = {
-    className: multiline ? 'textarea' : 'input',
+    className: multiline ? 'textarea short' : 'input',
     value: v,
     placeholder,
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV(e.target.value),
@@ -160,11 +163,7 @@ function Draft({
       }
     },
   };
-  return multiline ? (
-    <textarea {...props} rows={2} style={{ minHeight: 56 }} />
-  ) : (
-    <input {...props} type={type} />
-  );
+  return multiline ? <textarea {...props} rows={2} /> : <input {...props} type={type} />;
 }
 
 export function Inspector() {
@@ -181,12 +180,12 @@ export function Inspector() {
   }, [tag]);
 
   const count = selection.entities.length + selection.connections.length;
-  if (!count) return null;
+  if (!count) return <p className="details-hint">Select an element to edit it.</p>;
   if (!entity && !conn) {
     return (
       <div className="section">
         <div className="row">
-          <span style={{ flex: 1 }}>{count} selected</span>
+          <span className="grow">{count} selected</span>
           <button type="button" className="btn" onClick={deleteSelection}>
             <IconTrash />
             Delete
@@ -205,12 +204,9 @@ export function Inspector() {
 
   return (
     <div className="section" data-testid="inspector" key={entity ? `e:${entity.id}` : `c:${connIdx}`}>
-      <div className="row" style={{ marginBottom: 12 }}>
-        <span className="section-title" style={{ margin: 0, flex: 1 }}>
-          {tag}{' '}
-          <span style={{ color: 'var(--ink-subtle)', fontWeight: 400 }}>
-            {entity ? entity.id : `${conn!.from} → ${conn!.to}`}
-          </span>
+      <div className="section-head">
+        <span className="section-title">
+          {tag} <span className="muted">{entity ? entity.id : `${conn!.from} → ${conn!.to}`}</span>
         </span>
         <button
           type="button"
@@ -235,12 +231,14 @@ export function Inspector() {
           />
         </div>
       )}
-      {fields.map((f) => (
-        <div className="field" key={f.key}>
-          <span>{f.key}</span>
-          <FieldInput field={f} value={target[f.key]} onChange={(v) => update(f.key, v)} />
-        </div>
-      ))}
+      <div className="field-grid">
+        {fields.map((f) => (
+          <div className={`field${f.kind === 'number' ? '' : ' wide'}`} key={f.key}>
+            <span>{labelOf(f.key)}</span>
+            <FieldInput field={f} value={target[f.key]} onChange={(v) => update(f.key, v)} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

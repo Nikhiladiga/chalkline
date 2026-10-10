@@ -37,6 +37,12 @@ describe('IPC payload validation', () => {
     expect(() => parseArgs('export:save', { kind: 'exe', content: 'x', name: 'a' })).toThrow();
   });
 
+  it('reads legacy lmstudio settings but never saves them', () => {
+    expect(Settings.parse({ ...DEFAULT_SETTINGS, provider: 'lmstudio' }).provider).toBe('lmstudio');
+    expect(() => parseArgs('settings:set', { provider: 'lmstudio' })).toThrow();
+    expect(parseArgs('settings:set', { provider: 'openai' })).toEqual({ provider: 'openai' });
+  });
+
   it('rejects an unknown provider in settings', () => {
     expect(() => parseArgs('settings:set', { provider: 'evil' })).toThrow();
   });

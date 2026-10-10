@@ -2,7 +2,7 @@ import { stockLibrary } from '@eraserlabs/diagram-templates';
 import { stockNormalizers } from '@eraserlabs/diagram-templates/normalizers';
 import { createResolver } from '@eraserlabs/resolve';
 import { describe, expect, it } from 'vitest';
-import { fieldsFor } from './schemaFields';
+import { fieldsFor, labelOf } from './schemaFields';
 
 const resolver = await createResolver({ library: stockLibrary, normalizers: stockNormalizers });
 
@@ -45,5 +45,16 @@ describe('fieldsFor', () => {
       expect.arrayContaining(['endArrowhead', 'startArrowhead', 'lineStyle', 'label', 'color']),
     );
     expect(keys).not.toContain('points');
+  });
+});
+
+describe('labelOf', () => {
+  it('turns schema keys into sentence-case labels', () => {
+    expect(labelOf('fontSize')).toBe('Font size');
+    expect(labelOf('icon')).toBe('Icon');
+    expect(labelOf('strokeWidth')).toBe('Stroke width');
+    expect(labelOf('line-height')).toBe('Line height');
+    expect(labelOf('iconURL')).toBe('Icon URL');
+    expect(labelOf('x')).toBe('X');
   });
 });

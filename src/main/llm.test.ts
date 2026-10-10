@@ -29,7 +29,7 @@ const sse = (res: import('node:http').ServerResponse, chunks: unknown[]) => {
 const delta = (content: string) => ({ choices: [{ delta: { content } }] });
 const settings = (baseUrl: string, extra: Partial<Settings> = {}): Settings => ({
   ...DEFAULT_SETTINGS,
-  provider: 'lmstudio',
+  provider: 'openai',
   baseUrl,
   model: 'm',
   ...extra,
@@ -308,14 +308,28 @@ describe('Claude Code CLI chat', () => {
 });
 
 describe('friendlyError', () => {
-  it('explains how to start LM Studio when the connection is refused', async () => {
+  const refused = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+  const api = (baseUrl: string) => settings(baseUrl, { provider: 'openai' });
+
+  it('gives every local server the same hint, LM Studio included', () => {
+    for (const url of ['http://127.0.0.1:1234/v1', 'http://localhost:1234/v1', 'http://127.0.0.1:11434/v1'])
+      expect(friendlyError(refused(), api(url))).toBe(
+        `Can't reach the local server at ${url}. Start it and load a model.`,
+      );
+  });
+
+  it('keeps the generic network hint for remote servers', () => {
+    expect(friendlyError(refused(), api('https://api.openai.com/v1'))).toBe(
+      "Can't reach https://api.openai.com/v1. Check the base URL in Settings and your network.",
+    );
+  });
+
+  it('explains how to reach a local server when a real connection is refused', async () => {
     const s = settings('http://127.0.0.1:9/v1');
     const err = await chat(s, undefined, { messages: msgs }, () => {}, new AbortController().signal).catch(
       (e) => e,
     );
-    const msg = friendlyError(err, s);
-    expect(msg).toMatch(/LM Studio/);
-    expect(msg).toMatch(/Start Server|lms server start/);
+    expect(friendlyError(err, s)).toMatch(/local server at http:\/\/127\.0\.0\.1:9\/v1/);
   });
 
   it('asks for an API key on 401', () => {

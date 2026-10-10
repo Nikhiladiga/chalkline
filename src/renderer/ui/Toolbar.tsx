@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useDoc } from '../doc/store';
 import { autoLayoutAll, exportHtml, exportJson, exportPng, exportSvg } from './actions';
 import {
@@ -11,67 +11,36 @@ import {
   IconSun,
   IconUndo,
 } from './icons';
-import { useUi } from './uiStore';
+import { Menu } from './Menu';
+import { isMac, mod } from './platform';
 
-const isMac = navigator.userAgent.includes('Mac');
+const ctl = isMac ? 'Meta' : 'Control';
+
+import { useUi } from './uiStore';
 
 /** The app icon's glyph without its tile: a chalk box, a snapped line, a lavender box. */
 function BrandMark() {
   return (
     <svg className="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="2" y="2" width="9.5" height="9.5" rx="2.6" fill="none" stroke="#f3f1ea" strokeWidth="2.2" />
+      <rect
+        x="2"
+        y="2"
+        width="9.5"
+        height="9.5"
+        rx="2.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+      />
       <path
         d="M11.5 6.75h0.4a1.1 1.1 0 0 1 1.1 1.1v9.3a1.1 1.1 0 0 0 1.1 1.1h0.4"
         fill="none"
-        stroke="#f3f1ea"
+        stroke="currentColor"
         strokeWidth="2.2"
         strokeLinecap="round"
       />
       <rect x="14.2" y="13.2" width="8.3" height="8.3" rx="2.3" fill="#7581ee" />
     </svg>
-  );
-}
-const mod = isMac ? '⌘' : 'Ctrl+';
-
-/** A button that opens a dropdown; closes on outside click or Escape. */
-function Menu({
-  label,
-  icon,
-  children,
-  testId,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  children: (close: () => void) => React.ReactNode;
-  testId?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('pointerdown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-  return (
-    <div className="menu-wrap" ref={ref}>
-      <button
-        type="button"
-        className={`btn${open ? ' on' : ''}`}
-        onClick={() => setOpen(!open)}
-        data-testid={testId}
-        aria-expanded={open}
-      >
-        {icon}
-        {label}
-      </button>
-      {open && <div className="menu">{children(() => setOpen(false))}</div>}
-    </div>
   );
 }
 
@@ -93,14 +62,20 @@ export function Toolbar() {
         Chalkline
       </div>
       <span className="file-name" title={filePath ?? undefined}>
-        {name}
-        {dirty && <span className="dot"> — edited</span>}
+        <span className="file-title">{name}</span>
+        {dirty && (
+          <span className="dirty-dot">
+            <span className="sr-only"> — edited</span>
+          </span>
+        )}
       </span>
       <div className="sep" />
       <button
         type="button"
         className="btn icon"
-        title={`Undo (${mod}Z)`}
+        data-tip="Undo"
+        data-kbd={`${mod}Z`}
+        aria-keyshortcuts={`${ctl}+Z`}
         aria-label="Undo"
         disabled={!canUndo}
         onClick={() => useDoc.getState().undo()}
@@ -110,17 +85,21 @@ export function Toolbar() {
       <button
         type="button"
         className="btn icon"
-        title={`Redo (${mod}⇧Z)`}
+        data-tip="Redo"
+        data-kbd={`${mod}⇧Z`}
+        aria-keyshortcuts={`${ctl}+Shift+Z`}
         aria-label="Redo"
         disabled={!canRedo}
         onClick={() => useDoc.getState().redo()}
       >
         <IconRedo />
       </button>
+      <div className="sep" />
       <button
         type="button"
         className="btn"
-        title="Lay out the whole diagram again"
+        data-tip="Lay out the whole diagram again"
+        aria-description="Lay out the whole diagram again"
         onClick={() => void autoLayoutAll()}
       >
         <IconLayout />
@@ -137,32 +116,40 @@ export function Toolbar() {
             <>
               <button
                 type="button"
+                role="menuitem"
                 className="menu-item"
                 data-testid="export-png-2x"
                 onClick={run(() => exportPng(2, transparent))}
               >
                 PNG (2x)<span className="kbd">{mod}E</span>
               </button>
-              <button type="button" className="menu-item" onClick={run(() => exportPng(1, transparent))}>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={run(() => exportPng(1, transparent))}
+              >
                 PNG (1x)
               </button>
               <button
                 type="button"
+                role="menuitem"
                 className="menu-item"
                 data-testid="export-svg"
                 onClick={run(() => exportSvg(!transparent))}
               >
                 SVG<span className="kbd">{mod}⇧E</span>
               </button>
-              <button type="button" className="menu-item" onClick={run(exportHtml)}>
+              <button type="button" role="menuitem" className="menu-item" onClick={run(exportHtml)}>
                 HTML page
               </button>
-              <button type="button" className="menu-item" onClick={run(exportJson)}>
+              <button type="button" role="menuitem" className="menu-item" onClick={run(exportJson)}>
                 Measured JSON
               </button>
-              <div className="menu-sep" />
+              <hr className="menu-sep" />
               <button
                 type="button"
+                role="menuitem"
                 className="menu-item"
                 onClick={run(() => exportPng(2, transparent, true))}
               >
@@ -171,6 +158,8 @@ export function Toolbar() {
               <label className="menu-check">
                 <input
                   type="checkbox"
+                  role="menuitemcheckbox"
+                  aria-checked={transparent}
                   checked={transparent}
                   onChange={(e) => setTransparent(e.target.checked)}
                 />
@@ -184,8 +173,8 @@ export function Toolbar() {
         type="button"
         className="btn icon"
         data-testid="theme-toggle"
-        title={theme === 'dark' ? 'Switch the diagram to light' : 'Switch the diagram to dark'}
-        aria-label="Toggle diagram theme"
+        data-tip={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        aria-label="Toggle light and dark theme"
         onClick={async () => {
           const next = theme === 'dark' ? 'light' : 'dark';
           set({ theme: next });
@@ -196,7 +185,8 @@ export function Toolbar() {
       </button>
       <button
         type="button"
-        className={`btn${showAi ? ' on' : ''}`}
+        className="btn"
+        aria-pressed={showAi}
         onClick={() => set({ showAi: !showAi })}
         aria-label="Toggle AI panel"
       >
@@ -206,7 +196,9 @@ export function Toolbar() {
       <button
         type="button"
         className="btn icon"
-        title="Settings"
+        data-tip="Settings"
+        data-kbd={`${mod},`}
+        aria-keyshortcuts={`${ctl}+,`}
         aria-label="Settings"
         onClick={() => set({ settingsOpen: true })}
       >

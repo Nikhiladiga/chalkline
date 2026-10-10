@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+/** 'lmstudio' is read from old settings files only; main migrates it to 'openai' (an API preset now). */
 export const Provider = z.enum(['lmstudio', 'openai', 'claude-code', 'codex']);
 export type Provider = z.infer<typeof Provider>;
 
@@ -50,7 +51,10 @@ export const channels = {
   'recovery:read': z.undefined(),
   'recovery:clear': z.undefined(),
   'settings:get': z.undefined(),
-  'settings:set': Settings.partial().extend({ apiKey: z.string().optional() }),
+  'settings:set': Settings.partial().extend({
+    provider: Provider.exclude(['lmstudio']).optional(),
+    apiKey: z.string().optional(),
+  }),
   'llm:models': z.undefined(),
   'llm:harnesses': z.undefined(),
   'llm:chat': z.object({

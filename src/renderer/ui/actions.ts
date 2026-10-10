@@ -9,7 +9,7 @@ import { groundOf } from '../engine/theme';
 import { emptyDoc, SHEET_PAD } from '../engine/types';
 import { autoLayout } from '../layout/elk';
 import { iconNames } from './iconCatalog';
-import { requestFit, toast, useUi } from './uiStore';
+import { requestFitAfterRender, setPane, toast, useUi } from './uiStore';
 
 const availableIcons = new Set(iconNames);
 
@@ -56,7 +56,7 @@ export function loadText(text: string, path: string | null): void {
     useDoc.getState().load(typeof json.title === 'string' ? { title: json.title, ...doc } : doc, path);
     useUi.getState().set({ draft: null });
     void api().invoke('recovery:clear');
-    requestFit();
+    requestFitAfterRender();
   } catch (e) {
     toast(`Could not open: ${(e as Error).message}`);
   }
@@ -70,7 +70,8 @@ export function restoreRecovery(text: string): void {
     loadText(JSON.stringify(snapshot.doc), null);
     if (typeof snapshot.codeDraft === 'string') {
       useDoc.getState().setCodeDraft(snapshot.codeDraft);
-      useUi.getState().set({ showCode: true, leftMode: 'code' });
+      useUi.getState().set({ leftMode: 'code' });
+      setPane('left', true);
     }
     useDoc.setState({ dirty: true });
   } catch (e) {
@@ -192,7 +193,7 @@ export async function autoLayoutAll(): Promise<void> {
   } catch (e) {
     return toast(`Layout failed: ${ipcMessage(e)}`);
   }
-  requestFit();
+  requestFitAfterRender();
 }
 
 export function deleteSelection(): void {

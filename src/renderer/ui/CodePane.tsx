@@ -1,7 +1,7 @@
 import { json, jsonLanguage } from '@codemirror/lang-json';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { type Diagnostic, lintGutter, setDiagnostics } from '@codemirror/lint';
-import { Annotation } from '@codemirror/state';
+import { Annotation, Compartment } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { basicSetup } from 'codemirror';
@@ -18,37 +18,37 @@ import { useUi } from './uiStore';
 
 const External = Annotation.define<boolean>();
 
+// Colours come from the chrome tokens, so the editor follows the theme toggle.
 const highlight = HighlightStyle.define([
-  { tag: t.propertyName, color: '#a7b0f5' },
-  { tag: t.string, color: '#d0d6e0' },
-  { tag: t.number, color: '#e6b673' },
-  { tag: [t.bool, t.null], color: '#e6b673' },
-  { tag: t.punctuation, color: '#62666d' },
+  { tag: t.propertyName, color: 'var(--syn-prop)' },
+  { tag: t.string, color: 'var(--ink-muted)' },
+  { tag: [t.number, t.bool, t.null], color: 'var(--syn-num)' },
+  { tag: t.punctuation, color: 'var(--syn-punct)' },
 ]);
 
-const theme = EditorView.theme(
-  {
-    '.cm-tooltip': {
-      background: '#141516',
-      border: '1px solid #34343a',
-      borderRadius: '8px',
-      overflow: 'hidden',
-    },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul': {
-      fontFamily: 'var(--mono)',
-      maxHeight: '18em',
-      minWidth: '220px',
-    },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '3px 10px', color: '#d0d6e0' },
-    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-      background: 'color-mix(in srgb, #5e6ad2 40%, transparent)',
-      color: '#f7f8f8',
-    },
-    '.cm-completionDetail': { color: '#8a8f98', fontStyle: 'normal', marginLeft: '12px' },
-    '.cm-completionMatchedText': { textDecoration: 'none', color: '#a7b0f5', fontWeight: '600' },
+const theme = EditorView.theme({
+  '.cm-tooltip': {
+    background: 'var(--s4)',
+    border: '1px solid var(--hairline-strong)',
+    borderRadius: 'var(--r-md)',
+    boxShadow: 'var(--e2)',
+    overflow: 'hidden',
   },
-  { dark: true },
-);
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'var(--mono)',
+    maxHeight: '18em',
+    minWidth: '220px',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '3px 10px', color: 'var(--ink-muted)' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    background: 'var(--accent-soft)',
+    color: 'var(--ink)',
+  },
+  '.cm-completionDetail': { color: 'var(--ink-subtle)', fontStyle: 'normal', marginLeft: '12px' },
+  '.cm-completionMatchedText': { textDecoration: 'none', color: 'var(--syn-prop)', fontWeight: '600' },
+});
+// CodeMirror's base styles (cursor, panels) pick light or dark from this facet.
+const darkMode = new Compartment();
 
 // Schema-aware suggestions: tags, properties, enum values, colors, icons, ids, element templates.
 let resolver: Awaited<ReturnType<typeof getResolver>> | null = null;
@@ -104,6 +104,7 @@ export function CodePane({ active = true }: { active?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const draft = useUi((s) => s.draft);
+  const uiTheme = useUi((s) => s.theme);
   const codeDraft = useDoc((s) => s.codeDraft);
 
   useEffect(() => {
@@ -118,6 +119,7 @@ export function CodePane({ active = true }: { active?: boolean }) {
         lintGutter(),
         syntaxHighlighting(highlight),
         theme,
+        darkMode.of(EditorView.darkTheme.of(useUi.getState().theme === 'dark')),
         EditorView.lineWrapping,
         EditorView.updateListener.of((u) => {
           if (!u.docChanged || u.transactions.some((tr) => tr.annotation(External))) return;
@@ -179,14 +181,20 @@ export function CodePane({ active = true }: { active?: boolean }) {
     if (active) viewRef.current?.requestMeasure();
   }, [active]);
 
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: darkMode.reconfigure(EditorView.darkTheme.of(uiTheme === 'dark')),
+    });
+  }, [uiTheme]);
+
   return (
     <>
       {codeDraft !== null && (
         <div className="draft-bar">
-          <span style={{ flex: 1 }}>Code draft. Fix errors before saving, or discard it.</span>
+          <span className="grow">Code draft. Fix errors before saving, or discard it.</span>
           <button
             type="button"
-            className="btn secondary"
+            className="btn"
             onClick={() => {
               useUi.getState().set({ draft: null });
               useDoc.getState().discardCodeDraft();
