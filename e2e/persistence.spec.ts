@@ -17,11 +17,14 @@ test('invalid code is dirty, recoverable, and never silently saved as the previo
       await dg.actions.save();
     });
     const saved = readFileSync(join(dir, 'diagram.json'), 'utf8');
+    const activeTab = page
+      .getByRole('tablist', { name: 'Open diagrams' })
+      .getByRole('tab', { selected: true });
     await page.getByRole('tab', { name: 'Code', exact: true }).click();
     await page.locator('.cm-content').click();
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
     await page.keyboard.insertText('{"entities": [');
-    await expect(page.locator('.file-name')).toContainText('edited');
+    await expect(activeTab).toContainText('edited');
     await expect.poll(() => page.evaluate(() => window.api.invoke('recovery:read'))).toContain('codeDraft');
     await page.evaluate(() => (window as any).__dg.actions.save());
     await expect(page.getByRole('status')).toContainText('Fix the code');
@@ -31,10 +34,10 @@ test('invalid code is dirty, recoverable, and never silently saved as the previo
     await expect(page.locator('.cm-content')).toContainText('"entities": [');
     page.once('dialog', (d) => void d.dismiss());
     await page.evaluate(() => (window as any).__dg.actions.newDoc());
-    await expect(page.locator('.file-name')).toContainText('edited');
+    await expect(activeTab).toContainText('edited');
     page.once('dialog', (d) => void d.accept());
     await page.evaluate(() => (window as any).__dg.actions.newDoc());
-    await expect(page.locator('.file-name')).not.toContainText('edited');
+    await expect(activeTab).not.toContainText('edited');
     await expect.poll(() => page.evaluate(() => window.api.invoke('recovery:read'))).toBeNull();
     await expect(page.locator('.cm-content')).toContainText('"connections": []');
     await page.evaluate(() =>

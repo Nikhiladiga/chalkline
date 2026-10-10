@@ -19,7 +19,9 @@ test('a window with unsaved changes closes after choosing "Discard changes"', as
   await page.locator('.cm-content').click();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
   await page.keyboard.insertText('{"entities":[{"tag":"Shape","id":"a","x":0,"y":0}],"connections":[]}');
-  await expect(page.locator('.file-name')).toContainText('edited');
+  await expect(
+    page.getByRole('tablist', { name: 'Open diagrams' }).getByRole('tab', { selected: true }),
+  ).toContainText('edited');
   await expect.poll(() => existsSync(join(userData, 'recovery.json'))).toBe(true);
   await page.waitForTimeout(300); // let app:dirty reach main
   await app.evaluate(({ dialog, BrowserWindow }) => {

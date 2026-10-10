@@ -2,7 +2,18 @@ import { buildHtmlDocument } from '@eraserlabs/render';
 import { fitContainers } from '../ai/merge';
 import { toSplit } from '../ai/parse';
 import { deleteElements, duplicateEntities, insertIcon, moveEntities } from '../doc/ops';
-import { useDoc } from '../doc/store';
+import {
+  activateTab,
+  addTab,
+  DEFAULT_VIEW,
+  docApi,
+  patchTab,
+  removeTab,
+  tabState,
+  tabTitle,
+  useDoc,
+  useTabs,
+} from '../doc/store';
 import { serialize, validate } from '../engine/engine';
 import { toSvg } from '../engine/svg';
 import { groundOf } from '../engine/theme';
@@ -34,6 +45,52 @@ const api = () => window.api;
 /** ipcRenderer.invoke wraps main errors; show only the message. */
 export const ipcMessage = (e: unknown) =>
   String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+/** Before another tab shows: commit a focused field to this tab, cancel a canvas drag, keep pan/zoom. */
+function leaveActiveTab(): void {
+  (document.activeElement as HTMLElement | null)?.blur?.();
+  window.dispatchEvent(new Event('blur')); // Canvas cancels an in-flight drag on window blur.
+  const { zoom, pan } = useUi.getState();
+  patchTab(useTabs.getState().activeId, { view: { zoom, pan } });
+}
+
+/** Activate a tab and give the canvas its view; the render loop picks up its document. */
+function showTab(id: string): void {
+  activateTab(id);
+  const view = tabState(id)?.view ?? null;
+  const ui = useUi.getState();
+  ui.set({
+    ...(view ?? DEFAULT_VIEW),
+    render: null,
+    errors: [],
+    warnings: [],
+    draft: null,
+    fitPending: view === null,
+    renderTick: ui.renderTick + 1,
+  });
+}
+
+export function switchTab(id: string): void {
+  if (id === useTabs.getState().activeId || !tabState(id)) return;
+  leaveActiveTab();
+  showTab(id);
+}
+
+export function newTab(): void {
+  leaveActiveTab();
+  showTab(addTab());
+}
+
+/** Close a tab (default: the active one). Closing the last tab leaves a fresh Untitled; the window stays. */
+export function closeTab(id = useTabs.getState().activeId): void {
+  const t = tabState(id);
+  if (!t) return;
+  if (t.dirty && !window.confirm(`Discard unsaved changes to “${tabTitle(t)}”?`)) return;
+  const wasActive = id === useTabs.getState().activeId;
+  if (wasActive) leaveActiveTab();
+  const next = removeTab(id);
+  if (wasActive) showTab(next);
+}
 
 const baseName = () =>
   (useDoc.getState().filePath?.split(/[\\/]/).pop() ?? 'diagram').replace(/\.json$/i, '');
@@ -93,32 +150,36 @@ let saving = false;
 export async function save(as = false): Promise<void> {
   if (saving) return;
   saving = true;
+  const id = useTabs.getState().activeId;
+  const ops = docApi(id);
   try {
-    const draftState = useDoc.getState();
+    const draftState = tabState(id)!;
     if (draftState.codeDraft !== null) {
       const text = draftState.codeDraft;
       const json = JSON.parse(text);
       const result = await validate(json);
       if (!result.ok) throw new Error('Fix the code errors before saving.');
-      if (useDoc.getState().revision !== draftState.revision) return;
+      if (tabState(id)?.revision !== draftState.revision) return;
       const doc = toSplit(json);
-      draftState.acceptCodeDraft(typeof json.title === 'string' ? { title: json.title, ...doc } : doc, text);
-      useUi.getState().set({ draft: null });
+      ops.acceptCodeDraft(typeof json.title === 'string' ? { title: json.title, ...doc } : doc, text);
+      if (useTabs.getState().activeId === id) useUi.getState().set({ draft: null });
     }
-    const { doc, filePath, revision, session, markSaved } = useDoc.getState();
+    const tab = tabState(id);
+    if (!tab) return;
+    const { doc, filePath, revision, session } = tab;
     const path = await api().invoke('file:save', {
       path: as ? null : filePath,
       content: `${JSON.stringify(doc, null, 2)}\n`,
     });
     if (path) {
-      markSaved(path, revision, session);
-      if (!useDoc.getState().dirty && useDoc.getState().session === session)
-        await api().invoke('recovery:clear');
+      ops.markSaved(path, revision, session);
+      const now = tabState(id);
+      if (now && !now.dirty && now.session === session) await api().invoke('recovery:clear');
       toast(`Saved ${path.split(/[\\/]/).pop()}`);
     }
   } catch (e) {
     toast(
-      useDoc.getState().codeDraft !== null
+      tabState(id)?.codeDraft != null
         ? 'Fix the code errors before saving.'
         : `Save failed: ${ipcMessage(e)}`,
     );
@@ -187,13 +248,14 @@ export async function autoLayoutAll(): Promise<void> {
   if (!r || !store.doc.entities.length) return;
   try {
     const next = await autoLayout(store.doc, r.painted);
-    if (useDoc.getState().revision !== store.revision)
+    if (tabState(store.id)?.revision !== store.revision)
       return toast('Layout not applied: the diagram changed.');
-    store.commit(next);
+    store.commit(next); // bound to the tab that was laid out
   } catch (e) {
     return toast(`Layout failed: ${ipcMessage(e)}`);
   }
-  requestFitAfterRender();
+  if (useTabs.getState().activeId === store.id) requestFitAfterRender();
+  else patchTab(store.id, { view: null });
 }
 
 export function deleteSelection(): void {

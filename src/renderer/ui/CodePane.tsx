@@ -130,6 +130,9 @@ export function CodePane({ active = true }: { active?: boolean }) {
       ],
     });
     viewRef.current = view;
+    // A tab coming back with an unfinished draft shows its diagnostics again (and accepts it if now valid).
+    const pending = useDoc.getState().codeDraft;
+    if (pending !== null) void lint(view, pending);
 
     const sync = (text: string) => {
       const cur = view.state.doc.toString();

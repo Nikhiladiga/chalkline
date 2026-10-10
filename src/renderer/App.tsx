@@ -146,11 +146,17 @@ export function App() {
   const showAi = useUi((s) => s.showAi);
   const toastMsg = useUi((s) => s.toast);
   const theme = useUi((s) => s.theme);
+  const activeId = useTabs((s) => s.activeId);
 
   return (
     <div className={`app${testMode ? ' test-mode' : ''}`} data-theme={theme}>
       <Toolbar />
-      <main className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}>
+      <main
+        id="doc-panel"
+        role="tabpanel"
+        aria-labelledby={`doc-tab-${activeId}`}
+        className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}
+      >
         <LeftSidebar />
         <Canvas />
         <DetailsPane />
