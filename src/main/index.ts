@@ -64,7 +64,7 @@ function createWindow(): BrowserWindow {
       buttons: ['Discard changes', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
-      message: 'You have unsaved changes.',
+      message: 'You have unsaved changes or an AI run in progress.',
     });
     e.preventDefault();
     if (choice === 0) {
@@ -74,6 +74,7 @@ function createWindow(): BrowserWindow {
         .then(() => {
           discarding = false;
           dirty = false;
+          for (const ac of aborts.values()) ac.abort(); // stop running AI work before the window goes
           win.close();
         })
         .catch((error: Error) => {

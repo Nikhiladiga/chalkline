@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { watchRecovery } from './doc/recovery';
-import { useDoc, useTabs } from './doc/store';
+import { tabTitle, useDoc, useTabs } from './doc/store';
 import * as engine from './engine/engine';
 import { render } from './engine/engine';
 import { applyTheme } from './engine/theme';
@@ -133,12 +133,17 @@ function useMenuAndFiles(): void {
       ),
     [],
   );
-  const dirty = useDoc((s) => s.dirty);
-  const filePath = useDoc((s) => s.filePath);
+  // Main's close prompt must know about unsaved work in background tabs, and about running AI
+  // work (closing the window would abort it), so busy counts as "needs confirm" too.
+  const needsConfirm = useTabs((s) => s.tabs.some((t) => t.dirty || t.busy));
   useEffect(() => {
-    void window.api.invoke('app:dirty', dirty);
-    document.title = `${filePath?.split(/[\\/]/).pop() ?? 'Untitled'}${dirty ? ' (edited)' : ''} — Chalkline`;
-  }, [dirty, filePath]);
+    void window.api.invoke('app:dirty', needsConfirm);
+  }, [needsConfirm]);
+  const title = useDoc(tabTitle);
+  const dirty = useDoc((s) => s.dirty);
+  useEffect(() => {
+    document.title = `${title}${dirty ? ' (edited)' : ''} — Chalkline`;
+  }, [title, dirty]);
 }
 
 export function App() {
