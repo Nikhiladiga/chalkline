@@ -613,3 +613,113 @@ test('uncommitted Text in the inspector commits to its own tab when the tab chan
   expect(texts(await docIn(page, 0))).toEqual(['Edge', 'API']);
   expect(texts(await docIn(page, 1))).toEqual(['Solo']);
 });
+
+/** Kill the app like a crash (no close handlers), then start it again on the same user data. */
+async function crashAndRelaunch(): Promise<Page> {
+  const killed = app!.process();
+  const exited = new Promise((resolve) => killed.once('exit', resolve));
+  killed.kill('SIGKILL');
+  await exited;
+  const relaunched = await launch({ DG_USER_DATA: dir!, DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1' });
+  app = relaunched.app;
+  await relaunched.page.waitForFunction(() => (window as any).__dg);
+  return relaunched.page;
+}
+/** Run the startup restore offer; returns the prompt it showed (answered with `accept`), or null. */
+async function offer(page: Page, accept: boolean): Promise<string | null> {
+  let asked: string | null = null;
+  const onDialog = (d: import('@playwright/test').Dialog) => {
+    asked = d.message();
+    void (accept ? d.accept() : d.dismiss());
+  };
+  page.on('dialog', onDialog);
+  await page.evaluate(() => (window as any).__dg.actions.offerRecovery());
+  page.off('dialog', onDialog);
+  return asked;
+}
+const readRecovery = (page: Page) => page.evaluate(() => window.api.invoke('recovery:read'));
+
+test('recovery restores every tab with content, in order, with the active tab and its code draft', async () => {
+  let page = await open();
+  const orders = join(dir!, 'Orders.json');
+  const payments = join(dir!, 'Payments.json');
+  writeFileSync(orders, JSON.stringify(DOC));
+  writeFileSync(payments, JSON.stringify(DOC));
+  await load(page, DOC, orders); // a clean file tab
+  await newTabButton(page).click(); // stays pristine: not recovered
+  await newTabButton(page).click(); // a file tab with unsaved code
+  await load(page, DOC, payments);
+  await page.evaluate(() => (window as any).__dg.doc.getState().setCodeDraft('{"entities": ['));
+  await newTabButton(page).click(); // an edited Untitled
+  await page.evaluate((d) => (window as any).__dg.doc.getState().commit(d), SOLO);
+  await tabs(page).nth(2).click(); // the code-draft tab is on screen at the crash
+  await expect.poll(async () => JSON.parse((await readRecovery(page)) ?? 'null')?.active).toBe(1);
+  // Orders changes on disk after the crash: the clean tab reloads it rather than an old snapshot.
+  writeFileSync(orders, JSON.stringify(SOLO));
+  page = await crashAndRelaunch();
+  expect(await offer(page, true)).toBe('Restore 3 tabs from your last session?');
+  await expect(tabs(page)).toHaveText(['Orders', 'Untitled — edited', 'Untitled 2 — edited']);
+  await expect(strip(page).locator('.dirty-dot')).toHaveCount(2);
+  await expect(activeTab(page)).toHaveText('Untitled — edited');
+  await expect(page.locator('.cm-content')).toHaveText('{"entities": [');
+  const restored = await page.evaluate(() =>
+    (window as any).__dg.tabs.getState().tabs.map((t: any) => ({
+      path: t.filePath,
+      key: t.fileKey !== null,
+      draft: t.codeDraft,
+      busy: t.busy,
+    })),
+  );
+  expect(restored).toEqual([
+    { path: orders, key: true, draft: null, busy: false },
+    // An unsaved file tab comes back without its path: its first save asks where.
+    { path: null, key: false, draft: '{"entities": [', busy: false },
+    { path: null, key: false, draft: null, busy: false },
+  ]);
+  expect(ids(await docIn(page, 0))).toEqual(['solo']);
+  expect(ids(await docIn(page, 1))).toEqual(['web', 'api']);
+  expect(ids(await docIn(page, 2))).toEqual(['solo']);
+});
+
+test('a clean file that is gone comes back as its last copy, unsaved', async () => {
+  let page = await open();
+  const gone = join(dir!, 'Gone.json');
+  writeFileSync(gone, JSON.stringify(DOC));
+  await load(page, DOC, gone);
+  await newTabButton(page).click();
+  await page.evaluate((d) => (window as any).__dg.doc.getState().commit(d), SOLO);
+  await expect.poll(async () => JSON.parse((await readRecovery(page)) ?? 'null')?.tabs.length).toBe(2);
+  rmSync(gone);
+  page = await crashAndRelaunch();
+  expect(await offer(page, true)).toBe('Restore 2 tabs from your last session?');
+  await expect(tabs(page)).toHaveText(['Untitled — edited', 'Untitled 2 — edited']);
+  await expect(page.getByRole('status')).toContainText('Gone.json');
+  expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+});
+
+test('declining the restore offer clears it for good; v1 files restore one tab; nothing to restore asks nothing', async () => {
+  let page = await open();
+  const v1 = JSON.stringify({ recoveryVersion: 1, doc: SOLO, codeDraft: '{"entities": [' });
+  const write = (p: Page, text: string) => p.evaluate((t) => window.api.invoke('recovery:write', t), text);
+  // A document the user already replaced at startup (File › New on an empty one) is not offered over.
+  await write(page, v1);
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().load({ entities: [], connections: [] }, null),
+  );
+  expect(await offer(page, true)).toBeNull();
+  page = await crashAndRelaunch();
+  expect(await offer(page, false)).toBe('Restore the unsaved diagram from your last session?');
+  await expect.poll(() => readRecovery(page)).toBeNull();
+  page = await crashAndRelaunch();
+  expect(await offer(page, true)).toBeNull();
+  // A corrupt or future-version file holds nothing to restore.
+  for (const text of ['{"recoveryVersion": 2, "tabs": [', JSON.stringify({ recoveryVersion: 3, tabs: [] })]) {
+    await write(page, text);
+    expect(await offer(page, true)).toBeNull();
+  }
+  await write(page, v1);
+  expect(await offer(page, true)).toBe('Restore the unsaved diagram from your last session?');
+  await expect(tabs(page)).toHaveText(['Untitled — edited']);
+  await expect(page.locator('.cm-content')).toHaveText('{"entities": [');
+  expect(ids(await docIn(page, 0))).toEqual(['solo']);
+});

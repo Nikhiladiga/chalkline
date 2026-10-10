@@ -3,6 +3,7 @@ import type { OpenedFile } from '../../shared/ipc';
 import { fitContainers } from '../ai/merge';
 import { docFromJson, toSplit } from '../ai/parse';
 import { deleteElements, duplicateEntities, insertIcon, moveEntities } from '../doc/ops';
+import { fromRecovery, restoredTabs } from '../doc/recovery';
 import {
   activateTab,
   addTab,
@@ -99,8 +100,6 @@ export function closeTab(id = useTabs.getState().activeId): void {
   if (wasActive) leaveActiveTab();
   const next = removeTab(id);
   if (wasActive) showTab(next);
-  // Interim until the recovery watcher (Task 5): nothing unsaved is left, so nothing to recover.
-  if (!useTabs.getState().tabs.some((x) => x.dirty)) void api().invoke('recovery:clear');
 }
 
 export function cycleTab(delta: number): void {
@@ -145,25 +144,56 @@ export function loadText(text: string, path: string | null): void {
   }
   if (useDoc.getState().busy) newTab();
   useDoc.getState().load(doc, path);
-  void api().invoke('recovery:clear');
   requestFitAfterRender();
 }
 
-/** Recovery is internal app state; public diagram files retain the plain document format. */
-export function restoreRecovery(text: string): void {
+/**
+ * Bring back the tabs from a recovery file as new tabs, replacing an untouched Untitled. Clean file
+ * tabs reload their file; everything else comes back from its snapshot as an unsaved Untitled.
+ */
+export async function restoreRecovery(text: string): Promise<void> {
   try {
-    const value = JSON.parse(text);
-    const snapshot = value.recoveryVersion === 1 ? value : { doc: value, codeDraft: null };
-    loadText(JSON.stringify(snapshot.doc), null);
-    if (typeof snapshot.codeDraft === 'string') {
-      useDoc.getState().setCodeDraft(snapshot.codeDraft);
+    const saved = fromRecovery(text);
+    if (!saved.tabs.length) return;
+    const { tabs, missing } = await restoredTabs(saved, (path) => api().invoke('file:openPath', path));
+    leaveActiveTab();
+    const reuse = isPristine(useDoc.getState()) ? useTabs.getState().activeId : null;
+    if (reuse) patchTab(reuse, { untitled: 0 }); // hand its "Untitled" number to the first restored tab
+    const restored = tabs.map((t) => addTab(t));
+    if (reuse) removeTab(reuse);
+    const target = restored[saved.active] ?? restored[0]!;
+    showTab(target);
+    if (typeof tabState(target)?.codeDraft === 'string') {
       useUi.getState().set({ leftMode: 'code' });
       setPane('left', true);
     }
-    useDoc.setState({ dirty: true });
+    if (missing.length) {
+      const names = missing.map((p) => p.split(/[\\/]/).pop()).join(', ');
+      toast(`Could not reopen ${names}: its last copy is back as an unsaved Untitled.`);
+    }
   } catch (e) {
     toast(`Could not restore: ${ipcMessage(e)}`);
   }
+}
+
+/** The first tab's session at startup: once it changes, the user has started work and is not asked. */
+const startSession = useDoc.getState().session;
+
+/** At startup, offer to restore the last session's unsaved tabs; "No" clears the recovery file. */
+export async function offerRecovery(): Promise<void> {
+  const text: string | null = await api().invoke('recovery:read');
+  const count = text === null ? 0 : fromRecovery(text).tabs.length;
+  const untouched =
+    useTabs.getState().tabs.length === 1 &&
+    useDoc.getState().session === startSession &&
+    isPristine(useDoc.getState());
+  if (!count || !untouched) return;
+  const ask =
+    count > 1
+      ? `Restore ${count} tabs from your last session?`
+      : 'Restore the unsaved diagram from your last session?';
+  if (window.confirm(ask)) await restoreRecovery(text!);
+  else await api().invoke('recovery:clear');
 }
 
 /** Show a file in a tab: focus the tab that has it already, reuse an untouched idle Untitled, else add one. */
@@ -224,8 +254,6 @@ export async function save(as = false): Promise<void> {
     });
     if (path) {
       ops.markSaved(path, revision, session);
-      const now = tabState(id);
-      if (now && !now.dirty && now.session === session) await api().invoke('recovery:clear');
       toast(`Saved ${path.split(/[\\/]/).pop()}`);
     }
   } catch (e) {

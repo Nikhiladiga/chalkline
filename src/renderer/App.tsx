@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { isPristine, useDoc, useTabs } from './doc/store';
+import { watchRecovery } from './doc/recovery';
+import { useDoc, useTabs } from './doc/store';
 import * as engine from './engine/engine';
 import { render } from './engine/engine';
 import { applyTheme } from './engine/theme';
@@ -14,8 +15,8 @@ import {
   exportSvg,
   newTab,
   nudge,
+  offerRecovery,
   openFile,
-  restoreRecovery,
   save,
   tabKey,
 } from './ui/actions';
@@ -115,42 +116,25 @@ function useMenuAndFiles(): void {
     void window.api
       .invoke('settings:get')
       .then((s: { theme: 'dark' | 'light' }) => useUi.getState().set({ theme: s.theme }));
-    // Offer recovery of an unsaved diagram from the last session.
-    if (!testMode) {
-      void window.api.invoke('recovery:read').then((text: string | null) => {
-        if (!text || useTabs.getState().tabs.length > 1 || !isPristine(useDoc.getState())) return;
-        if (window.confirm('Restore the unsaved diagram from your last session?')) restoreRecovery(text);
-        else void window.api.invoke('recovery:clear');
-      });
-    }
+    // Offer recovery of unsaved tabs from the last session.
+    if (!testMode) void offerRecovery();
     return off;
   }, []);
 
-  // Autosave to the recovery file after 2 s idle; report dirty state to main for the close prompt.
-  const doc = useDoc((s) => s.doc);
+  // Keep the recovery file in step with every tab (2 s after the last change).
+  useEffect(
+    () =>
+      watchRecovery(
+        {
+          write: (text) => window.api.invoke('recovery:write', text),
+          clear: () => window.api.invoke('recovery:clear'),
+        },
+        (e) => useUi.getState().set({ toast: `Recovery failed: ${actions.ipcMessage(e)}` }),
+      ),
+    [],
+  );
   const dirty = useDoc((s) => s.dirty);
   const filePath = useDoc((s) => s.filePath);
-  const codeDraft = useDoc((s) => s.codeDraft);
-  useEffect(() => {
-    if (!dirty) return;
-    const t = setTimeout(
-      () =>
-        void window.api
-          .invoke(
-            'recovery:write',
-            JSON.stringify({
-              recoveryVersion: 1,
-              doc,
-              codeDraft,
-            }),
-          )
-          .catch((e: unknown) =>
-            useUi.getState().set({ toast: `Recovery failed: ${actions.ipcMessage(e)}` }),
-          ),
-      2000,
-    );
-    return () => clearTimeout(t);
-  }, [doc, dirty, codeDraft]);
   useEffect(() => {
     void window.api.invoke('app:dirty', dirty);
     document.title = `${filePath?.split(/[\\/]/).pop() ?? 'Untitled'}${dirty ? ' (edited)' : ''} — Chalkline`;
