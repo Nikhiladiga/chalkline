@@ -20,6 +20,21 @@ const CONTAINER_OPTIONS = {
   ...SPACING,
   'elk.padding': `[top=${TITLE_PAD},left=40,bottom=40,right=40]`,
 };
+// Deep scans: every group is its own left-to-right layered graph (edges lifted to it, see
+// `lifted`), so sibling groups line up as columns instead of drifting to straighten one edge.
+// Tighter rows (fan-outs stack), longer runs between layers for edge labels; edgeless siblings
+// form one column rather than a packed grid.
+const DEEP_OPTIONS = {
+  ...SPACING,
+  'elk.algorithm': 'layered',
+  'elk.direction': 'RIGHT',
+  'elk.spacing.nodeNode': '40',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '160',
+  'elk.separateConnectedComponents': 'false',
+  'elk.layered.nodePlacement.strategy': 'LINEAR_SEGMENTS',
+};
+const LAYER = 'elk.layered.layering.layerConstraint';
+const ROOT = '__root';
 
 interface Placed {
   x: number;
@@ -33,8 +48,15 @@ interface Placed {
  * `boxes` should be painted footprints (RenderOk.painted) so captions get room.
  * With 2+ top-level groups the diagram is treated as tiers: each group is laid out on its own
  * and the groups are stacked full-width under the title, legend top-right.
+ * `deep` (code-folder deep scans): one left-to-right flow, sources (clients, schedulers) first,
+ * sinks outside service groups (stores, external APIs) in a right-hand column, root text notes
+ * below the diagram instead of a title on top.
  */
-export async function autoLayout(doc: Doc, boxes: Record<string, Box>): Promise<Doc> {
+export async function autoLayout(
+  doc: Doc,
+  boxes: Record<string, Box>,
+  { deep = false }: { deep?: boolean } = {},
+): Promise<Doc> {
   const ids = new Set(doc.entities.map((e) => e.id));
   const byId = new Map(doc.entities.map((e) => [e.id, e]));
   const isRoot = (e: Entity) => !e.containerId || !ids.has(e.containerId);
@@ -43,6 +65,48 @@ export async function autoLayout(doc: Doc, boxes: Record<string, Box>): Promise<
     ...doc.entities.map((e) => e.containerId).filter((c): c is string => !!c && ids.has(c)),
     ...doc.entities.filter((e) => CONTAINER_TAGS.has(e.tag)).map((e) => e.id),
   ]);
+  // Each connection, as an edge between the two children of the endpoints' nearest common
+  // container (or the root) that hold them; deduplicated. Edges inside one child are skipped.
+  const chain = (id: string) => {
+    const out = [id];
+    for (let p = byId.get(id)?.containerId; p && ids.has(p); p = byId.get(p)?.containerId) out.push(p);
+    return [...out, ROOT];
+  };
+  const liftedBy = new Map<string, Map<string, { id: string; sources: string[]; targets: string[] }>>();
+  for (const c of doc.connections) {
+    if (!ids.has(c.from) || !ids.has(c.to)) continue;
+    const a = chain(c.from);
+    const b = chain(c.to);
+    const lca = a.find((x) => b.includes(x))!;
+    const s = a[a.indexOf(lca) - 1];
+    const t = b[b.indexOf(lca) - 1];
+    if (!s || !t) continue;
+    const level = liftedBy.get(lca) ?? new Map();
+    if (!level.has(`${s}>${t}`))
+      level.set(`${s}>${t}`, { id: `e${level.size}-${lca}`, sources: [s], targets: [t] });
+    liftedBy.set(lca, level);
+  }
+  const lifted = (id: string) => [...(liftedBy.get(id)?.values() ?? [])];
+
+  // Deep: sinks outside service groups (groups holding no groups) — stores, external APIs —
+  // go in the last layer; anything with no incoming edge at its own level goes first.
+  const layer = new Map<string, string>();
+  if (deep) {
+    const service = new Set(
+      [...containers].filter((c) => !doc.entities.some((e) => e.containerId === c && containers.has(e.id))),
+    );
+    const fed = new Set([...liftedBy.values()].flatMap((l) => [...l.values()].map((e) => e.targets[0])));
+    for (const e of doc.entities) {
+      if (ANNOTATIONS.has(e.tag)) continue;
+      const sink =
+        !containers.has(e.id) &&
+        !(e.containerId && service.has(e.containerId)) &&
+        doc.connections.some((c) => c.to === e.id) &&
+        !doc.connections.some((c) => c.from === e.id);
+      if (sink) layer.set(e.id, 'LAST');
+      else if (!fed.has(e.id)) layer.set(e.id, 'FIRST');
+    }
+  }
   // Footprint → glyph offset: a caption wider than its icon starts left of the icon's x.
   const pad = new Map<string, { dx: number; dy: number }>();
 
@@ -51,13 +115,28 @@ export async function autoLayout(doc: Doc, boxes: Record<string, Box>): Promise<
       return {
         id,
         children: doc.entities.filter((e) => e.containerId === id).map((e) => node(e.id)),
-        layoutOptions: CONTAINER_OPTIONS,
+        ...(deep
+          ? {
+              layoutOptions: {
+                ...CONTAINER_OPTIONS,
+                ...DEEP_OPTIONS,
+                ...(layer.has(id) ? { [LAYER]: layer.get(id)! } : {}),
+              },
+              edges: lifted(id),
+            }
+          : { layoutOptions: CONTAINER_OPTIONS }),
       };
     }
     const b = boxes[id];
     const e = byId.get(id);
     if (b && e) pad.set(id, { dx: (e.x ?? b.x) - b.x, dy: (e.y ?? b.y) - b.y });
-    return { id, width: (b ?? DEFAULT).width, height: (b ?? DEFAULT).height };
+    const at = layer.get(id);
+    return {
+      id,
+      width: (b ?? DEFAULT).width,
+      height: (b ?? DEFAULT).height,
+      ...(at ? { layoutOptions: { [LAYER]: at } } : {}),
+    };
   };
 
   const within = (members: Set<string>) =>
@@ -105,7 +184,9 @@ export async function autoLayout(doc: Doc, boxes: Record<string, Box>): Promise<
   const tiers = roots.filter((e) => containers.has(e.id));
   const notes = roots.filter((e) => ANNOTATIONS.has(e.tag));
   // The diagram title (first root Textbox) and legend form a header row above everything else.
-  const title = notes.find((e) => e.tag === 'Textbox');
+  // A deep scan's root Textbox is its source note: it goes below the diagram.
+  const title = deep ? undefined : notes.find((e) => e.tag === 'Textbox');
+  const below = deep ? notes.filter((e) => e.tag === 'Textbox') : [];
   const legend = notes.find((e) => e.tag === 'Legend');
   const headH = Math.max(
     title ? (boxes[title.id]?.height ?? 40) : 0,
@@ -114,7 +195,7 @@ export async function autoLayout(doc: Doc, boxes: Record<string, Box>): Promise<
   const top = headH ? MARGIN / 2 + headH + MARGIN : MARGIN;
   let W = 0;
 
-  if (tiers.length >= 2) {
+  if (tiers.length >= 2 && !deep) {
     const loose = roots.filter((e) => !containers.has(e.id) && !ANNOTATIONS.has(e.tag));
     // Each tier (and any loose root nodes, as one row) is its own layered graph.
     const rows: { members: Set<string>; graph: ElkNode; group?: string }[] = [];
@@ -176,22 +257,30 @@ export async function autoLayout(doc: Doc, boxes: Record<string, Box>): Promise<
       y += (boxes[n.id]?.height ?? 40) + TIER_GAP;
     }
   } else {
-    const body = roots.filter((e) => e !== title && e !== legend);
+    const body = roots.filter((e) => e !== title && e !== legend && !below.includes(e));
+    const inBody = new Set(body.map((e) => e.id));
     const laid = await run(
       {
-        id: '__root',
+        id: ROOT,
         layoutOptions: {
-          ...rootOptions,
+          ...(deep ? DEEP_OPTIONS : rootOptions),
           'elk.padding': `[top=${top},left=${MARGIN},bottom=${MARGIN},right=${MARGIN}]`,
         },
         children: body.map((e) => node(e.id)),
-        edges: within(ids),
+        edges: deep
+          ? lifted(ROOT).filter((e) => inBody.has(e.sources[0]!) && inBody.has(e.targets[0]!))
+          : within(ids),
       },
       0,
       0,
       pos,
     );
     W = (laid.width ?? 0) - 2 * MARGIN;
+    let y = laid.height ?? 0;
+    for (const n of below) {
+      pos.set(n.id, { x: MARGIN, y });
+      y += (boxes[n.id]?.height ?? 40) + MARGIN;
+    }
   }
   if (title) pos.set(title.id, { x: MARGIN, y: MARGIN / 2 });
   if (legend) {

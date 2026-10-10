@@ -436,6 +436,19 @@ describe('runAi', () => {
         expect(e.y).toBeLessThan(p.y! + p.height!);
       }
     });
+    it('keeps the source note below a fresh deep diagram', async () => {
+      const { d } = deps([service], { measure });
+      const r = await runAi(d, {
+        mode: 'generate',
+        prompt: 'x',
+        current: empty,
+        allowMove: false,
+        deep: true,
+      });
+      if (!r.ok) throw new Error(r.message);
+      const note = r.doc.entities.find((e) => e.id === 'note')!;
+      for (const e of r.doc.entities) if (e !== note) expect(note.y).toBeGreaterThan(e.y!);
+    });
 
     it('leaves a non-deep generation and a deep edit where the model put them', async () => {
       const plain = deps([service], { measure });
