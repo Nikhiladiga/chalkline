@@ -66,3 +66,16 @@ The site deploys automatically when `site/**` changes on `main`.
 ## Third-party code
 
 Keep the license and font notices in `third_party/eraser-diagrams` and the pinned `@eraserlabs/*` 0.2.0 packages.
+
+### Patched dependency
+
+`@eraserlabs/render@0.2.0` is patched (`patches/@eraserlabs__render@0.2.0.patch`) so the router's repair search has a time budget instead of running unbounded. To change the patch:
+
+```sh
+pnpm patch @eraserlabs/render@0.2.0 --edit-dir "$PWD/node_modules/.render-edit"   # opens a copy with the current patch applied
+# edit dist/browser/route.js, index.js and their .d.ts files there
+pnpm patch-commit "$PWD/node_modules/.render-edit"
+pnpm exec vitest run src/renderer/engine/renderPatch.test.ts
+```
+
+Check that the lockfile diff only touches `@eraserlabs/render` before committing. When upgrading `@eraserlabs/render`, re-create the patch for the new version, or drop it if upstream exposes the budget. After any change, delete `node_modules/.vite` so `pnpm dev` re-bundles the package.

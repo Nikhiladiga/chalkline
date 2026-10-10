@@ -1,0 +1,94 @@
+diff --git a/dist/browser/index.d.ts b/dist/browser/index.d.ts
+index 033201a19bb0b8c2c00fa9b135af10b55650e1cd..51ac073ca79c04b63e209240a3ee95781e0ddb54 100644
+--- a/dist/browser/index.d.ts
++++ b/dist/browser/index.d.ts
+@@ -26,6 +26,8 @@ export interface RunRequest {
+     connections: ResolvedConnection[];
+     /** Icon name → sanitized SVG sidecar. */
+     icons: Record<string, string>;
++    /** Chalkline patch: router repair budget in ms (default 100; Infinity = unbounded, as upstream). */
++    repairTimeBudgetMs?: number;
+ }
+ export interface RunResult {
+     /** Natural pass-1 boxes plus final policy-sized body/role/part/ink boxes. */
+diff --git a/dist/browser/index.js b/dist/browser/index.js
+index 58e29bbbf1e9e124cbc131e23d7b8da6b914180f..fecf9a7e95091889a133fa46f2b7f2244e489d30 100644
+--- a/dist/browser/index.js
++++ b/dist/browser/index.js
+@@ -28,7 +28,7 @@ async function run(request) {
+   if (!templatesHtml) {
+     throw new Error("__eraser.run before __eraser.setup");
+   }
+-  const { entities, connections } = request;
++  const { entities, connections, repairTimeBudgetMs } = request;
+   const all = [...entities, ...connections];
+   const washDefs = await prepareWashMasters(washMaster, all);
+   const fill = createFillEngine({ templates: templatesHtml, icons: request.icons });
+@@ -42,12 +42,12 @@ async function run(request) {
+   let measures = measureScene(mounted, intrinsics);
+   let finalExternalText = externalTextOf(measures);
+   const provisional = deferConstrainedConnectionLabels(connections, mounted, finalExternalText);
+-  let layout = routeScene(entities, connections, resolvedSizes, provisional.externalText);
++  let layout = routeScene(entities, connections, resolvedSizes, provisional.externalText, repairTimeBudgetMs);
+   if (provisional.deferred) {
+     constrainConnectionLabels(connections, mounted, layout);
+     measures = measureScene(mounted, intrinsics);
+     finalExternalText = externalTextOf(measures);
+-    layout = routeScene(entities, connections, resolvedSizes, finalExternalText);
++    layout = routeScene(entities, connections, resolvedSizes, finalExternalText, repairTimeBudgetMs);
+   }
+   for (let pass = 0; pass < 2; pass += 1) {
+     if (!constrainConnectionLabels(connections, mounted, layout)) {
+@@ -55,7 +55,7 @@ async function run(request) {
+     }
+     measures = measureScene(mounted, intrinsics);
+     finalExternalText = externalTextOf(measures);
+-    layout = routeScene(entities, connections, resolvedSizes, finalExternalText);
++    layout = routeScene(entities, connections, resolvedSizes, finalExternalText, repairTimeBudgetMs);
+   }
+   applyLayout(scene, mounted, layout, containmentZIndex(all), measures);
+   attachContainerContent(all, measures, layout);
+diff --git a/dist/browser/route.d.ts b/dist/browser/route.d.ts
+index 72e171f265f431ac88177b25aa4ef43b443583d7..3aa46ec2a4ae3e8634db0a821073c0383db0d8ae 100644
+--- a/dist/browser/route.d.ts
++++ b/dist/browser/route.d.ts
+@@ -12,5 +12,5 @@ export declare function externalTextOf(measures: ElementMeasure[]): Map<string,
+  * resolved box may omit it and fall back to the element's authored dimensions. The caller has
+  * already split the scene by registry kind (`classify.ts`); this stage never re-checks it.
+  */
+-export declare function routeScene(sceneEntities: ResolvedEntity[], sceneConnections: ResolvedConnection[], resolvedBoxes: Map<string, Box>, externalText: Map<string, Box[]>): SceneLayout;
++export declare function routeScene(sceneEntities: ResolvedEntity[], sceneConnections: ResolvedConnection[], resolvedBoxes: Map<string, Box>, externalText: Map<string, Box[]>, repairTimeBudgetMs?: number): SceneLayout;
+ //# sourceMappingURL=route.d.ts.map
+\ No newline at end of file
+diff --git a/dist/browser/route.js b/dist/browser/route.js
+index 7d4f58568307e5f199a9b6554128c3a8596edf98..eb59e0f3f1ae6cb967a03ed7f08807649c2c4857 100644
+--- a/dist/browser/route.js
++++ b/dist/browser/route.js
+@@ -2,7 +2,8 @@ import { LayoutManager, anchorFromStored, resolveManualLabel, routeCorridorConne
+ import { isFiniteNumber, isRecord } from "@eraserlabs/utils";
+ import { ELBOW_CORNER_RADIUS, toPathData } from "./roundedPath.js";
+ const SCENE_PADDING = 16;
+-const REPAIR_TIME_BUDGET_MS = Number.POSITIVE_INFINITY;
++// Chalkline patch: a finite default; run() passes the caller's budget (see AGENTS.md).
++const REPAIR_TIME_BUDGET_MS = 100;
+ const FACE_BY_PORT = {
+   top: "up",
+   bottom: "down",
+@@ -19,7 +20,7 @@ function externalTextOf(measures) {
+   }
+   return boxes;
+ }
+-function routeScene(sceneEntities, sceneConnections, resolvedBoxes, externalText) {
++function routeScene(sceneEntities, sceneConnections, resolvedBoxes, externalText, repairTimeBudgetMs = REPAIR_TIME_BUDGET_MS) {
+   const entities = toEntities(sceneEntities, resolvedBoxes, externalText);
+   const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+   const { pinned, routed, straight, manualLabels } = toConnections(sceneConnections, entitiesById, externalText);
+@@ -37,7 +38,7 @@ function routeScene(sceneEntities, sceneConnections, resolvedBoxes, externalText
+         repair: true,
+         labels: true,
+         pinUnaffectedRoutes: true,
+-        repairTimeBudgetMs: REPAIR_TIME_BUDGET_MS
++        repairTimeBudgetMs
+       }
+     });
+     restoreManualLabels(manager, manualLabels);

@@ -95,12 +95,22 @@ export async function tagSchema(tag: string): Promise<any> {
   return (await getResolver()).tagSchema(tag);
 }
 
+/**
+ * Time budget (ms) for the corridor router's repair search, on every render. Upstream hard-codes Infinity,
+ * which cost 0.5–4 s per render on large diagrams; our pnpm patch of @eraserlabs/render makes it a run()
+ * option. At 50 ms the drag-perf fixture renders in ~140 ms with routes as clean as unbounded ones (see
+ * e2e/drag-perf.spec.ts, which also guards it). A calibration knob, not a constant of nature.
+ */
+export const REPAIR_BUDGET_MS = 50;
+
 // run() owns one global #eraser-scene, so renders must not overlap: chain them, and let only the
 // newest queued request actually run.
 let chain: Promise<unknown> = Promise.resolve();
 let seq = 0;
 
-export function render(doc: Doc): Promise<RenderOk | RenderFail> {
+/** `repairTimeBudgetMs` overrides REPAIR_BUDGET_MS (tests draw an unbounded reference with Infinity). */
+export function render(doc: Doc, opts: { repairTimeBudgetMs?: number } = {}): Promise<RenderOk | RenderFail> {
+  const repairTimeBudgetMs = opts.repairTimeBudgetMs ?? REPAIR_BUDGET_MS;
   const mine = ++seq;
   const job = chain.then(async (): Promise<RenderOk | RenderFail> => {
     if (mine !== seq) return { ok: false, errors: [], warnings: [], stale: true };
@@ -113,6 +123,7 @@ export function render(doc: Doc): Promise<RenderOk | RenderFail> {
       entities: r.entities ?? [],
       connections: r.connections ?? [],
       icons: r.icons ?? {},
+      repairTimeBudgetMs,
     });
     const anchored = routeAnchors(r.entities ?? [], r.connections ?? [], run.layout);
     if (anchored !== r.connections && anchored.some((c) => c.props.fromPort && c.props.toPort)) {
@@ -120,6 +131,7 @@ export function render(doc: Doc): Promise<RenderOk | RenderFail> {
         entities: r.entities ?? [],
         connections: anchored,
         icons: r.icons ?? {},
+        repairTimeBudgetMs,
       });
     }
     const scene = document.getElementById('eraser-scene')!;

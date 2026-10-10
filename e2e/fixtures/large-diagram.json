@@ -1,0 +1,264 @@
+{
+  "entities": [
+    {
+      "tag": "Icon",
+      "id": "node-01",
+      "x": 40,
+      "y": 400,
+      "icon": "monitor",
+      "texts": [{ "text": "Service 01" }]
+    },
+    {
+      "tag": "Group",
+      "id": "zone-02",
+      "x": 180,
+      "y": 40,
+      "width": 1190,
+      "height": 1270,
+      "title": { "text": "Zone 02" }
+    },
+    {
+      "tag": "Group",
+      "id": "zone-03",
+      "x": 220,
+      "y": 120,
+      "containerId": "zone-02",
+      "width": 220,
+      "height": 710,
+      "title": { "text": "Zone 03" }
+    },
+    {
+      "tag": "Icon",
+      "id": "node-04",
+      "x": 300,
+      "y": 180,
+      "containerId": "zone-03",
+      "icon": "server",
+      "texts": [{ "text": "Service 04" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-05",
+      "x": 300,
+      "y": 350,
+      "containerId": "zone-03",
+      "icon": "database",
+      "texts": [{ "text": "Service 05" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-06",
+      "x": 300,
+      "y": 520,
+      "containerId": "zone-03",
+      "icon": "globe",
+      "texts": [{ "text": "Service 06" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-07",
+      "x": 300,
+      "y": 690,
+      "containerId": "zone-03",
+      "icon": "cloud",
+      "texts": [{ "text": "Service 07" }]
+    },
+    {
+      "tag": "Group",
+      "id": "zone-08",
+      "x": 220,
+      "y": 900,
+      "containerId": "zone-02",
+      "width": 220,
+      "height": 370,
+      "title": { "text": "Zone 08" }
+    },
+    {
+      "tag": "Icon",
+      "id": "node-09",
+      "x": 300,
+      "y": 960,
+      "containerId": "zone-08",
+      "icon": "cpu",
+      "texts": [{ "text": "Service 09" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-10",
+      "x": 300,
+      "y": 1130,
+      "containerId": "zone-08",
+      "icon": "hard-drive",
+      "texts": [{ "text": "Service 10" }]
+    },
+    {
+      "tag": "Group",
+      "id": "zone-11",
+      "x": 520,
+      "y": 120,
+      "containerId": "zone-02",
+      "width": 400,
+      "height": 1050,
+      "title": { "text": "Zone 11" }
+    },
+    {
+      "tag": "Icon",
+      "id": "node-12",
+      "x": 580,
+      "y": 520,
+      "containerId": "zone-11",
+      "icon": "layers",
+      "texts": [{ "text": "Service 12" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-13",
+      "x": 790,
+      "y": 180,
+      "containerId": "zone-11",
+      "icon": "package",
+      "texts": [{ "text": "Service 13" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-14",
+      "x": 790,
+      "y": 350,
+      "containerId": "zone-11",
+      "icon": "network",
+      "texts": [{ "text": "Service 14" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-15",
+      "x": 790,
+      "y": 520,
+      "containerId": "zone-11",
+      "icon": "activity",
+      "texts": [{ "text": "Service 15" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-16",
+      "x": 790,
+      "y": 690,
+      "containerId": "zone-11",
+      "icon": "zap",
+      "texts": [{ "text": "Service 16" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-17",
+      "x": 790,
+      "y": 860,
+      "containerId": "zone-11",
+      "icon": "folder",
+      "texts": [{ "text": "Service 17" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-18",
+      "x": 790,
+      "y": 1030,
+      "containerId": "zone-11",
+      "icon": "file-text",
+      "texts": [{ "text": "Service 18" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-19",
+      "x": 1060,
+      "y": 200,
+      "containerId": "zone-02",
+      "icon": "mail",
+      "texts": [{ "text": "Service 19" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-20",
+      "x": 1060,
+      "y": 600,
+      "containerId": "zone-02",
+      "icon": "lock",
+      "texts": [{ "text": "Service 20" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-21",
+      "x": 1060,
+      "y": 1000,
+      "containerId": "zone-02",
+      "icon": "key",
+      "texts": [{ "text": "Service 21" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-22",
+      "x": 1240,
+      "y": 200,
+      "containerId": "zone-02",
+      "icon": "shield",
+      "texts": [{ "text": "Service 22" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-23",
+      "x": 1240,
+      "y": 600,
+      "containerId": "zone-02",
+      "icon": "users",
+      "texts": [{ "text": "Service 23" }]
+    },
+    {
+      "tag": "Icon",
+      "id": "node-24",
+      "x": 1240,
+      "y": 1000,
+      "containerId": "zone-02",
+      "icon": "clock",
+      "texts": [{ "text": "Service 24" }]
+    },
+    {
+      "tag": "Textbox",
+      "id": "note",
+      "x": 180,
+      "y": 1350,
+      "width": 640,
+      "text": "Synthetic fixture for the drag performance test: 25 entities and 32 labelled connections."
+    }
+  ],
+  "connections": [
+    { "from": "node-01", "to": "node-04", "label": "HTTP POST /resource-items-a" },
+    { "from": "node-01", "to": "node-05", "label": "HTTP GET /resource-list-b" },
+    { "from": "node-01", "to": "node-06", "label": "SQL write record table" },
+    { "from": "node-01", "to": "node-07", "label": "SQL read record table" },
+    { "from": "node-01", "to": "node-09", "label": "publish event name" },
+    { "from": "node-04", "to": "node-19", "label": "on EVENT_NAME_INGEST" },
+    { "from": "node-04", "to": "node-12", "label": "S3 GetObject source files" },
+    { "from": "node-12", "to": "node-13", "label": "HTTP POST /batch-orders" },
+    { "from": "node-12", "to": "node-14", "label": "HTTP POST /resource-items-a" },
+    { "from": "node-12", "to": "node-15", "label": "HTTP GET /resource-list-b" },
+    { "from": "node-12", "to": "node-16", "label": "SQL write record table" },
+    { "from": "node-12", "to": "node-17", "label": "SQL read record table" },
+    { "from": "node-12", "to": "node-18", "label": "publish event name" },
+    { "from": "node-13", "to": "node-22", "label": "on EVENT_NAME_INGEST" },
+    { "from": "node-14", "to": "node-20", "label": "S3 GetObject source files" },
+    { "from": "node-14", "to": "node-22", "label": "HTTP POST /batch-orders" },
+    { "from": "node-14", "to": "node-19", "label": "HTTP POST /resource-items-a" },
+    { "from": "node-15", "to": "node-20", "label": "HTTP GET /resource-list-b" },
+    { "from": "node-15", "to": "node-22", "label": "SQL write record table" },
+    { "from": "node-15", "to": "node-24", "label": "SQL read record table" },
+    { "from": "node-15", "to": "node-19", "label": "publish event name" },
+    { "from": "node-16", "to": "node-22", "label": "on EVENT_NAME_INGEST" },
+    { "from": "node-16", "to": "node-20", "label": "S3 GetObject source files" },
+    { "from": "node-17", "to": "node-23", "label": "HTTP POST /batch-orders" },
+    { "from": "node-18", "to": "node-22", "label": "HTTP POST /resource-items-a" },
+    { "from": "node-06", "to": "node-19", "label": "HTTP GET /resource-list-b" },
+    { "from": "node-07", "to": "node-19", "label": "SQL write record table" },
+    { "from": "node-07", "to": "node-22", "label": "SQL read record table" },
+    { "from": "node-09", "to": "node-10", "label": "publish event name" },
+    { "from": "node-10", "to": "node-19", "label": "on EVENT_NAME_INGEST" },
+    { "from": "node-10", "to": "node-20", "label": "S3 GetObject source files" },
+    { "from": "zone-03", "to": "node-21", "label": "HTTP POST /batch-orders", "lineStyle": "dashed" }
+  ]
+}
