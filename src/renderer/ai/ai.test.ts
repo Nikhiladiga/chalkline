@@ -429,4 +429,70 @@ describe('runAi', () => {
     });
     expect(r).toMatchObject({ ok: false, message: "Can't reach LM Studio" });
   });
+
+  const empty: Doc = { entities: [], connections: [] };
+  const padded = (n: number) =>
+    JSON.stringify({
+      entities: [{ tag: 'Shap', id: 'a', x: 0, y: 0, note: 'x'.repeat(n) }],
+      connections: [],
+    });
+
+  it('passes the attempt number so only the first call explores the folder', async () => {
+    const attempts: number[] = [];
+    const replies = [bad, good];
+    const { d } = deps([], {
+      chat: async (_m, _s, attempt) => {
+        attempts.push(attempt);
+        return replies.shift()!;
+      },
+    });
+    await runAi(d, { mode: 'generate', prompt: 'x', current: empty, allowMove: false, deep: true });
+    expect(attempts).toEqual([0, 1]);
+  });
+
+  it('picks icon sets from the folder preview without sending it to the model', async () => {
+    const { d, calls } = deps([good]);
+    await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: empty,
+      allowMove: false,
+      deep: true,
+      iconHint: 'infra/main.tf: aws lambda handler',
+    });
+    expect(calls[0]![0]!.content).toContain('aws-lambda');
+    expect(calls[0]!.map((m) => m.content).join('\n')).not.toContain('infra/main.tf');
+  });
+
+  it('accepts a deep rescan that removes obsolete components', async () => {
+    const current: Doc = {
+      entities: ['a', 'b', 'c', 'd'].map((id, i) => ({ tag: 'Shape', id, x: i * 200, y: 0 })),
+      connections: [],
+    };
+    const onlyNew = JSON.stringify({
+      entities: [{ tag: 'Shape', id: 'cache', x: 0, y: 200 }],
+      connections: [],
+    });
+    const { d, calls } = deps([onlyNew]);
+    const r = await runAi(d, { mode: 'edit', prompt: 'update', current, allowMove: false, deep: true });
+    expect(calls).toHaveLength(1);
+    expect(r.ok).toBe(true);
+  });
+
+  it('keeps a 30k-char draft whole in the repair transcript', async () => {
+    const draft = padded(30_000);
+    const { d, calls } = deps([draft, good]);
+    await runAi(d, { mode: 'generate', prompt: 'x', current: empty, allowMove: false, deep: true });
+    expect(calls[1]!.at(-2)).toEqual({ role: 'assistant', content: draft });
+  });
+
+  // Review Focus 4: past the cap the transcript is cut, but the code pane still gets everything.
+  it('caps a huge draft in the repair transcript but hands the whole draft to the code pane', async () => {
+    const huge = padded(150_000);
+    const { d, calls } = deps([huge, huge, huge]);
+    const r = await runAi(d, { mode: 'generate', prompt: 'x', current: empty, allowMove: false, deep: true });
+    expect(calls[1]!.at(-2)!.content).toHaveLength(100_000);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.draft!.length).toBeGreaterThan(150_000);
+  });
 });

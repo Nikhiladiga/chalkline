@@ -8,7 +8,8 @@ import { extractJson, toSplit } from './parse';
 import { buildMessages, iconSubset, RESPONSE_SCHEMA } from './prompt';
 
 export interface AiDeps {
-  chat(messages: ChatMsg[], schema: object): Promise<string>;
+  /** `attempt` 0 is the first call; repairs (≥ 1) must stay isolated. */
+  chat(messages: ChatMsg[], schema: object, attempt: number): Promise<string>;
   validate(doc: unknown): Promise<{ ok: boolean; errors: Issue[]; warnings: Issue[] }>;
   /** Render and return painted footprints (box + spilled text), or null when it does not render. */
   measure(doc: Doc): Promise<Record<string, Box> | null>;
@@ -25,6 +26,10 @@ export interface AiRequest {
   current: Doc;
   allowMove: boolean;
   sourceContext?: string;
+  /** Deep scan: the CLI reads the folder itself; no excerpts are sent. */
+  deep?: boolean;
+  /** Folder preview text used only to choose icon sets; never sent to the model. */
+  iconHint?: string;
 }
 
 export type AiResult =
@@ -54,7 +59,7 @@ function completeness(doc: Doc, req: AiRequest): Issue[] {
       },
     ];
   }
-  if (req.mode !== 'edit' || req.sourceContext || REMOVAL.test(req.prompt)) return [];
+  if (req.mode !== 'edit' || req.sourceContext || req.deep || REMOVAL.test(req.prompt)) return [];
   const kept = new Set(doc.entities.map((e) => e.id));
   const dropped = req.current.entities.map((e) => e.id).filter((id) => !kept.has(id));
   if (dropped.length <= Math.max(1, req.current.entities.length * 0.3)) return [];
@@ -72,9 +77,10 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
     req.mode,
     req.prompt,
     req.current,
-    iconSubset(req.prompt + (req.sourceContext ?? ''), deps.names),
+    iconSubset(req.prompt + (req.sourceContext ?? req.iconHint ?? ''), deps.names),
     deps.schemaOf,
     req.sourceContext,
+    req.deep,
   );
   let best: { text: string; doc?: Doc; errors: Issue[] } | undefined;
   let good: { doc: Doc; fixes: string[]; warnings: Issue[] } | undefined;
@@ -83,7 +89,7 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
     deps.onStage(attempt === 0 ? 'generating' : `repairing ${attempt}/${deps.maxRepairs}`);
     let text: string;
     try {
-      text = await deps.chat([...messages], RESPONSE_SCHEMA);
+      text = await deps.chat([...messages], RESPONSE_SCHEMA, attempt);
     } catch (e) {
       return { ok: false, message: (e as Error).message, errors: [] };
     }
@@ -105,7 +111,8 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
     if (!best || errors.length < best.errors.length) best = { text, doc, errors };
     if (!good)
       messages.push(
-        { role: 'assistant', content: text.slice(0, 20_000) },
+        // A 60-node diagram passes 20k chars; a cut-off draft cannot be repaired.
+        { role: 'assistant', content: text.slice(0, 100_000) },
         { role: 'user', content: repairMessage(errors) },
       );
   }
