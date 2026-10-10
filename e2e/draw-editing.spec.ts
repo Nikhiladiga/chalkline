@@ -366,6 +366,52 @@ test('a reconnect that would duplicate a line, or a tab switch mid-drag, changes
   expect(second).toEqual({ entities: [], connections: [] });
 });
 
+test('Ctrl+Tab mid-move or mid-resize cancels: no ghost, and the release writes to neither tab', async () => {
+  const page = await open();
+  const original = await docOf(page);
+  await page.evaluate(() => {
+    const dg = (window as any).__dg;
+    const first = dg.tabs.getState().activeId;
+    dg.actions.newTab();
+    dg.actions.switchTab(first);
+  });
+  await expect(page.locator('.hit[data-id="c"]')).toBeVisible();
+  const docs = () => page.evaluate(() => (window as any).__dg.tabs.getState().tabs.map((t: any) => t.doc));
+  const unchanged = async () => {
+    const [first, second] = await docs();
+    expect(first).toEqual(original);
+    expect(second).toEqual({ entities: [], connections: [] });
+  };
+  // Move: the preview is up, the tab switch removes it, the release drops nothing.
+  const c = await center(page, 'c');
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 120, c.y + 60, { steps: 8 });
+  await expect(page.locator('[data-preview]').first()).toBeAttached();
+  await page.keyboard.press('Control+Tab');
+  await expect(page.locator('.hit[data-id="c"]')).toHaveCount(0);
+  await expect(page.locator('[data-preview]')).toHaveCount(0);
+  await page.mouse.up();
+  await unchanged();
+  // Resize: back on the first tab, the outline goes with the switch and the release resizes nothing.
+  await page.keyboard.press('Control+Tab');
+  await page.locator('.hit[data-id="c"]').click();
+  const h = (await page.getByTestId('resize-handle').boundingBox())!;
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(h.x + 60, h.y + 40, { steps: 8 });
+  await expect(page.getByTestId('resize-preview')).toBeVisible();
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('resize-preview')).toHaveCount(0);
+  await page.mouse.up();
+  await unchanged();
+  await page.keyboard.press('Control+Tab');
+  await expect(page.locator('.hit[data-id="c"]')).toBeVisible();
+  await expect(page.locator('[data-preview]')).toHaveCount(0);
+  expect(await docOf(page)).toEqual(original);
+  expect(await past(page)).toBe(0);
+});
+
 test('Shift-drag moves along one axis, also for an already selected element', async () => {
   const page = await open();
   const selected = () => page.evaluate(() => (window as any).__dg.doc.getState().selection.entities);
