@@ -91,11 +91,14 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
 
   it('remembers a Save-dialog target; a path the renderer sent goes to the dialog instead', async () => {
     const chosen = await files.save(win, null, '{"s":1}');
-    expect(chosen).toBe(join(dir, 'diagram.json'));
-    expect((await files.reopen(chosen!))?.content).toBe('{"s":1}');
+    expect(chosen).toEqual({
+      path: join(dir, 'diagram.json'),
+      key: await chosenKey(join(dir, 'diagram.json')),
+    });
+    expect((await files.reopen(chosen!.path))?.content).toBe('{"s":1}');
     const sent = file('sent.json', '{"untouched":1}');
     await restart();
-    expect(await files.save(win, sent, '{"t":1}')).toBe(join(dir, 'diagram.json'));
+    expect((await files.save(win, sent, '{"t":1}'))?.path).toBe(join(dir, 'diagram.json'));
     expect(readFileSync(sent, 'utf8')).toBe('{"untouched":1}');
     expect(await files.reopen(sent)).toBeNull();
   });
@@ -106,10 +109,10 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     await openViaDialog(p);
     await openViaDialog(other);
     await restart();
-    expect(await files.save(win, other, '{"x":1}')).toBe(join(dir, 'diagram.json'));
+    expect((await files.save(win, other, '{"x":1}'))?.path).toBe(join(dir, 'diagram.json'));
     expect(readFileSync(other, 'utf8')).toBe('{"m":1}');
     expect((await files.reopen(p))?.content).toBe('{"r":1}');
-    expect(await files.save(win, p, '{"r":2}')).toBe(p);
+    expect((await files.save(win, p, '{"r":2}'))?.path).toBe(p);
     expect(readFileSync(p, 'utf8')).toBe('{"r":2}');
   });
 
@@ -118,7 +121,9 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     writeFileSync(settings, '{}');
     await openViaDialog(settings);
     expect(await files.reopen(settings)).toBeNull();
-    expect(await files.save(win, join(userData, 'known-files.json'), '[]')).toBe(join(dir, 'diagram.json'));
+    expect((await files.save(win, join(userData, 'known-files.json'), '[]'))?.path).toBe(
+      join(dir, 'diagram.json'),
+    );
     expect(JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'))).not.toEqual([]);
   });
 

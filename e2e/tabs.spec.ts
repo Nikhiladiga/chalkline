@@ -899,3 +899,45 @@ test('capture tab strip screenshots', async () => {
   await tabs(page).nth(9).dispatchEvent('dragover', { dataTransfer: dt });
   await shot('tabs-12-mid-drag-dark');
 });
+
+test('Save As onto a file open in another tab turns that tab into an edited Untitled', async () => {
+  const page = await open();
+  const dg = join(dir!, 'diagram.json');
+  writeFileSync(dg, JSON.stringify(DOC));
+  await app!.evaluate((_e, d) => {
+    process.env.DG_SAVE_DIR = d;
+  }, dir!);
+  // Opened through a symlink: the tabs match by main's file key, not by the path text.
+  symlinkSync(dg, join(dir!, 'alias.json'));
+  await openViaDialog(page, join(dir!, 'alias.json'));
+  await newTabButton(page).click();
+  await load(page, SOLO);
+  await page.evaluate(() => (window as any).__dg.actions.save(true));
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).__dg.tabs.getState().tabs.map((t: any) => [t.filePath, t.dirty])),
+    )
+    .toEqual([
+      [null, true],
+      [dg, false],
+    ]);
+  expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+  await expect(tabs(page).first()).toContainText('Untitled');
+});
+
+test('a render still in flight for the previous tab does not land on the new one', async () => {
+  const page = await open();
+  await load(page, DOC);
+  await newTabButton(page).click();
+  await load(page, SOLO);
+  // Switch away in the same task the load renders in: the first tab's render resolves while tab 2 shows.
+  await page.evaluate(() => {
+    const t = (window as any).__dg.tabs.getState().tabs;
+    (window as any).__dg.actions.switchTab?.(t[0].id);
+  });
+  await tabs(page).nth(1).click();
+  await expect(page.locator('.hit')).toHaveCount(1);
+  await page.waitForTimeout(300);
+  const boxes = await page.evaluate(() => Object.keys((window as any).__dg.ui.getState().render.boxes));
+  expect(boxes).toEqual(['solo']);
+});

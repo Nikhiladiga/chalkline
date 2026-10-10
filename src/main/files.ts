@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { app, type BrowserWindow, dialog } from 'electron';
-import type { OpenedFile } from '../shared/ipc';
+import type { OpenedFile, SavedFile } from '../shared/ipc';
 import { allowedSave, chosenKey, outsideAppData } from './savePaths';
 
 const userFile = (name: string) => join(app.getPath('userData'), name);
@@ -99,7 +99,11 @@ async function askSavePath(win: BrowserWindow, name: string, ext: string): Promi
 }
 
 /** The renderer only names a path; main writes there only if the user chose it, else asks with the Save dialog. */
-export async function save(win: BrowserWindow, path: string | null, content: string): Promise<string | null> {
+export async function save(
+  win: BrowserWindow,
+  path: string | null,
+  content: string,
+): Promise<SavedFile | null> {
   const userData = app.getPath('userData');
   let target = path && (await allowedSave(path, chosen, userData));
   if (!path || !target) {
@@ -111,7 +115,7 @@ export async function save(win: BrowserWindow, path: string | null, content: str
   }
   await atomicWrite(target, content);
   app.addRecentDocument(path);
-  return path;
+  return { path, key: await chosenKey(target) };
 }
 
 /** Export to wherever the user picks, except the app data folder; written atomically. */

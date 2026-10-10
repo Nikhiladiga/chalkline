@@ -109,6 +109,9 @@ export interface OpenedFile {
   key: string;
 }
 
+/** Where `file:save` wrote: the path and its key, so the renderer can tell which open tab is that file. */
+export type SavedFile = Omit<OpenedFile, 'content'>;
+
 /** The `window.api` surface the preload exposes. */
 export interface Api {
   invoke<C extends Channel>(channel: C, arg?: Args<C>): Promise<any>;

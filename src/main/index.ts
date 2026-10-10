@@ -136,10 +136,17 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
       try {
         // Second gate: a projectId only works when Deep scan is on for a CLI provider.
         const cwd = a.projectId ? deepCwd(s, projectPath(a.projectId)) : undefined;
-        return await chat(s, getKey(), a, (text) => sender.send('llm:chunk', { id: a.id, text }), ac.signal, {
-          cwd,
-          onProgress: (text) => !sender.isDestroyed() && sender.send('llm:progress', { id: a.id, text }),
-        });
+        return await chat(
+          s,
+          getKey(),
+          a,
+          (text) => !sender.isDestroyed() && sender.send('llm:chunk', { id: a.id, text }),
+          ac.signal,
+          {
+            cwd,
+            onProgress: (text) => !sender.isDestroyed() && sender.send('llm:progress', { id: a.id, text }),
+          },
+        );
       } catch (e) {
         throw new Error(friendlyError(e, s));
       } finally {

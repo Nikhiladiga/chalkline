@@ -43,7 +43,7 @@ function useRenderLoop(): void {
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick forces a re-render of the same doc.
   useEffect(() => {
     void render(applyTheme(doc, theme)).then((r) => {
-      if (!r.ok && r.stale) return;
+      if ((!r.ok && r.stale) || useDoc.getState().doc !== doc) return; // switched tabs mid-render
       const ui = useUi.getState();
       if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
       else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });

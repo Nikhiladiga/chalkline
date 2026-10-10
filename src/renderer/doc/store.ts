@@ -46,7 +46,7 @@ export interface DocActions {
   redo(): void;
   select(sel: Selection): void;
   load(doc: Doc, path: string | null): void;
-  markSaved(path: string, revision?: number, session?: number): void;
+  markSaved(path: string, revision?: number, session?: number, key?: string): void;
   setCodeDraft(text: string): void;
   acceptCodeDraft(doc: Doc, text: string, revision?: number): void;
   discardCodeDraft(): void;
@@ -99,7 +99,7 @@ function freshTab(untitled: number, init: TabInit = {}): Tab {
 }
 
 /** The smallest "Untitled N" number no open untitled tab uses. */
-function nextUntitled(tabs: Tab[]): number {
+export function nextUntitled(tabs: Tab[]): number {
   const used = new Set(tabs.filter((t) => t.filePath === null).map((t) => t.untitled));
   let n = 1;
   while (used.has(n)) n++;
@@ -203,13 +203,13 @@ export function docApi(id: string): DocActions {
         selection: none,
         gestureStart: null,
       })),
-    markSaved: (filePath, revision, session) =>
+    markSaved: (filePath, revision, session, key) =>
       up((s) =>
         (session ?? s.session) !== s.session
           ? null
           : {
               filePath,
-              fileKey: filePath === s.filePath ? s.fileKey : null,
+              fileKey: key ?? (filePath === s.filePath ? s.fileKey : null),
               dirty: (revision ?? s.revision) !== s.revision || s.codeDraft !== null,
             },
       ),

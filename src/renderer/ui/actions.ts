@@ -1,5 +1,5 @@
 import { buildHtmlDocument } from '@eraserlabs/render';
-import type { OpenedFile } from '../../shared/ipc';
+import type { OpenedFile, SavedFile } from '../../shared/ipc';
 import { fitContainers } from '../ai/merge';
 import { docFromJson, toSplit } from '../ai/parse';
 import { deleteElements, duplicateEntities, insertIcon, moveEntities } from '../doc/ops';
@@ -10,6 +10,7 @@ import {
   DEFAULT_VIEW,
   docApi,
   isPristine,
+  nextUntitled,
   patchTab,
   removeTab,
   tabState,
@@ -252,12 +253,23 @@ export async function save(as = false): Promise<void> {
     const tab = tabState(id);
     if (!tab) return;
     const { doc, filePath, revision, session } = tab;
-    const path = await api().invoke('file:save', {
+    const saved: SavedFile | null = await api().invoke('file:save', {
       path: as ? null : filePath,
       content: `${JSON.stringify(doc, null, 2)}\n`,
     });
-    if (path) {
-      ops.markSaved(path, revision, session);
+    if (saved) {
+      const { path, key } = saved;
+      ops.markSaved(path, revision, session, key);
+      // Another tab on the file just overwritten must not stay bound to it: keep its content as an edited Untitled.
+      for (const t of useTabs.getState().tabs) {
+        if (t.id !== id && (t.fileKey === key || t.filePath === path))
+          patchTab(t.id, {
+            filePath: null,
+            fileKey: null,
+            dirty: true,
+            untitled: nextUntitled(useTabs.getState().tabs.filter((o) => o.id !== t.id)),
+          });
+      }
       toast(`Saved ${path.split(/[\\/]/).pop()}`);
     }
   } catch (e) {
