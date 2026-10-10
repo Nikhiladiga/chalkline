@@ -10,7 +10,7 @@ const SHORTCUTS: [string, string][] = [
   ['Copy / cut / paste', `${mod}C / ${mod}X / ${mod}V`],
   ['Duplicate selection', `${mod}D`],
   ['Drop a copy while dragging', isMac ? '⌥-drag' : 'Alt-drag'],
-  ['Drag without snapping', `${mod}-drag`],
+  ['Drag without snapping', isMac ? '⌘-drag' : 'Ctrl-drag'],
   ['Move along one axis', isMac ? '⇧-drag' : 'Shift-drag'],
   ['Reconnect a line', 'Drag its end handle'],
   ['Select all', `${mod}A`],
@@ -26,7 +26,7 @@ const SHORTCUTS: [string, string][] = [
   ['Go to tab 1–8 / last tab', `${mod}1–8 / ${mod}9`],
   ['Generate or apply from the prompt', `${mod}↵`],
   ['Pan', 'Space-drag'],
-  ['Zoom', `${mod}-scroll`],
+  ['Zoom', isMac ? '⌘-scroll' : 'Ctrl-scroll'],
   ['Edit text or a line label', 'Double-click / F2 / ↵'],
   ['Show shortcuts', '?'],
 ];
