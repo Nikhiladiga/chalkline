@@ -27,7 +27,7 @@ const SHORTCUTS: [string, string][] = [
   ['Generate or apply from the prompt', `${mod}↵`],
   ['Pan', 'Space-drag'],
   ['Zoom', `${mod}-scroll`],
-  ['Edit text', 'Double-click'],
+  ['Edit text or a line label', 'Double-click / F2 / ↵'],
   ['Show shortcuts', '?'],
 ];
 

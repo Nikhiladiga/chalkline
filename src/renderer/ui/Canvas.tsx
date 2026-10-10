@@ -97,8 +97,11 @@ type Gesture =
   | { kind: 'marquee'; x0: number; y0: number; x: number; y: number; base: string[] };
 type ReconnectGesture = Extract<Gesture, { kind: 'reconnect' }>;
 type MoveGesture = Extract<Gesture, { kind: 'move' }>;
-/** The connection label editor: bound to its tab and to the connection's ends when it opened. */
-type LabelEdit = { tabId: string; index: number; from: string; to: string; value: string };
+/**
+ * The connection label editor: bound to its tab and to the connection's ends when it opened. `start` is the
+ * field's opening text: an untouched field commits nothing, whatever the stored label holds.
+ */
+type LabelEdit = { tabId: string; index: number; from: string; to: string; value: string; start: string };
 
 /** Containment depth, for paint/hit order: containers under their members. */
 function depthOf(doc: Doc, id: string): number {
@@ -165,6 +168,8 @@ export function Canvas() {
   // Commit reads the ref, so Escape (which clears it) can never be undone by the blur that follows.
   const labelRef = useRef<LabelEdit | null>(null);
   labelRef.current = labelEdit;
+  // F2/Enter (in a mount-time key listener) reach the latest openLabel through this ref.
+  const openLabelRef = useRef<(index: number) => void>(() => {});
 
   // The engine mounts a fresh #eraser-scene per render; adopt it.
   useLayoutEffect(() => {
@@ -283,6 +288,25 @@ export function Canvas() {
       if (e.code === 'Space' && !typing(e.target) && !space.current) {
         space.current = true;
         force((n) => n + 1);
+      }
+      // F2 or Enter edits the one selected element's text or line's label (draw.io); several do nothing.
+      // Enter only from the board, so a focused button keeps it.
+      if ((e.key !== 'F2' && e.key !== 'Enter') || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      const onBoard =
+        t === document.body || (t instanceof HTMLElement && !!t.closest('.canvas') && !t.closest('button'));
+      const ui = useUi.getState();
+      if (typing(t) || ui.settingsOpen || ui.iconPick || gesture.current || (e.key === 'Enter' && !onBoard))
+        return;
+      const { doc: d, selection: sel } = useDoc.getState();
+      const one = sel.entities.length === 1 && !sel.connections.length;
+      const entity = one ? d.entities.find((x) => x.id === sel.entities[0]) : undefined;
+      if (entity) {
+        e.preventDefault();
+        setEditing({ id: entity.id, value: getPrimaryText(entity) });
+      } else if (sel.connections.length === 1 && !sel.entities.length) {
+        e.preventDefault();
+        openLabelRef.current(sel.connections[0]!);
       }
     };
     const up = (e: KeyboardEvent) => {
@@ -723,16 +747,12 @@ export function Canvas() {
     const c = useDoc.getState().doc.connections[index];
     if (!c) return;
     commitText();
-    const next = {
-      tabId: useTabs.getState().activeId,
-      index,
-      from: c.from,
-      to: c.to,
-      value: typeof c.label === 'string' ? c.label : '',
-    };
+    const value = typeof c.label === 'string' ? c.label : '';
+    const next = { tabId: useTabs.getState().activeId, index, from: c.from, to: c.to, value, start: value };
     labelRef.current = next;
     setLabelEdit(next);
   };
+  openLabelRef.current = openLabel;
   const cancelLabel = () => {
     labelRef.current = null;
     setLabelEdit(null);
@@ -741,6 +761,7 @@ export function Canvas() {
     const l = labelRef.current;
     if (!l) return;
     cancelLabel();
+    if (l.value === l.start) return;
     const t = tabState(l.tabId);
     const c = t?.doc.connections[l.index];
     if (!t || !c) return;
@@ -1064,6 +1085,7 @@ export function Canvas() {
                 onBlur={commitText}
                 onKeyDown={(ev) => {
                   ev.stopPropagation();
+                  if (ev.nativeEvent.isComposing) return; // an IME's Enter/Escape ends the composition only
                   if (ev.key === 'Escape') setEditing(null);
                   if (ev.key === 'Enter' && !ev.shiftKey) {
                     ev.preventDefault();
@@ -1085,6 +1107,7 @@ export function Canvas() {
                 onKeyDown={(ev) => {
                   // Keys stay in the field: ⌘Z, ⌘C, Delete and arrows never reach the canvas shortcuts.
                   ev.stopPropagation();
+                  if (ev.nativeEvent.isComposing) return; // an IME's Enter/Escape ends the composition only
                   if (ev.key === 'Escape') cancelLabel();
                   if (ev.key === 'Enter') {
                     ev.preventDefault();

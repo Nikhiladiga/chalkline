@@ -392,3 +392,119 @@ test('Shift-drag moves along one axis, also for an already selected element', as
   expect((await entity(page, 'a-2')).y).toBe(copy.y);
   expect(await selected()).toEqual(['a-2']);
 });
+
+test('F2 and Enter edit the one selected element or line; not for several, mid-drag, behind a modal or while typing', async () => {
+  const page = await open();
+  // Keys that must open nothing: no editor may mount, even briefly (one that blurs at once would vanish).
+  const pressNothing = async (...keys: string[]) => {
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__mounted = false;
+      w.__watch?.disconnect();
+      w.__watch = new MutationObserver(() => {
+        if (document.querySelector('.text-edit')) w.__mounted = true;
+      });
+      w.__watch.observe(document.body, { childList: true, subtree: true });
+    });
+    for (const k of keys) await page.keyboard.press(k);
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => (window as any).__mounted)).toBe(false);
+  };
+  await page.locator('.hit[data-id="a"]').click();
+  await page.keyboard.press('F2');
+  await expect(page.locator('textarea.text-edit')).toHaveValue('A');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Enter');
+  await page.locator('textarea.text-edit').fill('Alpha');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await entity(page, 'a')).texts[0].text).toBe('Alpha');
+  const p = await onLine(page, 0);
+  await page.mouse.click(p.x, p.y);
+  await page.keyboard.press('Enter');
+  await page.getByRole('textbox', { name: 'Connection label' }).fill('HTTP');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await docOf(page)).connections[0].label).toBe('HTTP');
+  expect(await past(page)).toBe(2);
+  // Enter on a focused button stays the button's.
+  await page.getByRole('button', { name: 'Fit', exact: true }).focus();
+  await pressNothing('Enter');
+  // Several items selected: nothing opens (there is no single label to edit).
+  await page.locator('.hit[data-id="b"]').click();
+  await page.locator('.hit[data-id="c"]').click({ modifiers: ['Shift'] });
+  await pressNothing('F2', 'Enter');
+  // b alone (clicking b would keep the multi-selection, for a group drag).
+  const onlyB = () =>
+    page.evaluate(() => (window as any).__dg.doc.getState().select({ entities: ['b'], connections: [] }));
+  // Mid-drag: nothing opens.
+  await onlyB();
+  const b = await center(page, 'b');
+  await page.mouse.move(b.x, b.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 30, b.y + 30, { steps: 4 });
+  await pressNothing('F2');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // Behind a modal: nothing opens.
+  await onlyB();
+  await page.evaluate(() => (window as any).__dg.ui.getState().set({ settingsOpen: true }));
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()); // not typing: the body has focus
+  await pressNothing('F2');
+  await page.evaluate(() => (window as any).__dg.ui.getState().set({ settingsOpen: false }));
+  await expect(page.getByRole('dialog')).toBeHidden();
+  // Typing in the code editor: F2 stays there.
+  await page.locator('.hit[data-id="b"]').click();
+  await page.getByRole('tab', { name: 'Code', exact: true }).click();
+  await page.locator('.cm-content').click();
+  await pressNothing('F2');
+  expect(await past(page)).toBe(2);
+});
+
+test('label field: Enter while composing does not commit; an untouched open and blur adds no undo step', async () => {
+  const page = await open({
+    ...DOC,
+    connections: [
+      { from: 'a', to: 'b', label: ' HTTP ' },
+      { from: 'b', to: 'c' },
+    ],
+  });
+  // A non-string label (typed into the code) fails to render; the canvas keeps the last good render.
+  await page.evaluate(() => {
+    const s = (window as any).__dg.doc.getState();
+    s.commit({ ...s.doc, connections: [s.doc.connections[0], { ...s.doc.connections[1], label: 42 }] });
+  });
+  await expect(page.locator('.hit').first()).toBeVisible();
+  const label = page.getByRole('textbox', { name: 'Connection label' });
+  const canvas = (await page.locator('.canvas').boundingBox())!;
+  for (const i of [0, 1]) {
+    const p = await onLine(page, i);
+    await page.mouse.dblclick(p.x, p.y);
+    await expect(label).toBeFocused();
+    await page.mouse.click(canvas.x + 10, canvas.y + canvas.height - 60);
+    await expect(label).toHaveCount(0);
+  }
+  expect((await docOf(page)).connections.map((c: any) => c.label)).toEqual([' HTTP ', 42]);
+  expect(await past(page)).toBe(1);
+  // IME: the Enter that ends a composition is the IME's, in both editors.
+  const composingEnter = (sel: string) =>
+    page
+      .locator(sel)
+      .evaluate((el) =>
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })),
+      );
+  const p = await onLine(page, 0);
+  await page.mouse.dblclick(p.x, p.y);
+  await label.fill('呼ぶ');
+  await composingEnter('input.label-edit');
+  await expect(label).toHaveValue('呼ぶ');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await docOf(page)).connections[0].label).toBe('呼ぶ');
+  await page.locator('.hit[data-id="a"]').click();
+  await page.keyboard.press('F2');
+  await page.locator('textarea.text-edit').fill('甲');
+  await composingEnter('textarea.text-edit');
+  await expect(page.locator('textarea.text-edit')).toHaveValue('甲');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await entity(page, 'a')).texts[0].text).toBe('甲');
+  expect(await past(page)).toBe(3);
+});
