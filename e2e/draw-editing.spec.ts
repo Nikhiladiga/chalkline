@@ -565,17 +565,24 @@ test('Arrange aligns and distributes the selection in one undo step and one rend
   ]);
 });
 
-test('Arrange is hidden for a group with its own child: they are one root', async () => {
+test('Arrange keeps grouping; a group with its own child is one root, so Arrange hides', async () => {
   const page = await open({
     entities: [
       { tag: 'Group', id: 'g', x: 0, y: 0, width: 300, height: 200, title: { text: 'G' } },
       { tag: 'Icon', id: 'k', icon: 'server', x: 60, y: 60, containerId: 'g', texts: [{ text: 'K' }] },
+      { tag: 'Icon', id: 'o', icon: 'server', x: 500, y: 60, texts: [{ text: 'O' }] },
     ],
     connections: [],
   });
-  await page.evaluate(() =>
-    (window as any).__dg.doc.getState().select({ entities: ['g', 'k'], connections: [] }),
-  );
+  const select = (ids: string[]) =>
+    page.evaluate((e) => (window as any).__dg.doc.getState().select({ entities: e, connections: [] }), ids);
+  await select(['g', 'k']);
   await expect(page.getByText('2 selected')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Align left', exact: true })).toHaveCount(0);
+  // A grouped child aligned to an icon outside its group moves out of the box but stays in the group.
+  await select(['k', 'o']);
+  await page.getByRole('button', { name: 'Align right', exact: true }).click();
+  await expect.poll(() => entity(page, 'k')).toMatchObject({ x: 500, y: 60, containerId: 'g' });
+  expect((await entity(page, 'o')).containerId).toBeUndefined();
+  expect(await past(page)).toBe(1);
 });

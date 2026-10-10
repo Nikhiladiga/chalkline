@@ -21,6 +21,7 @@ import {
   setConnectionLabel,
   setPrimaryText,
   setProp,
+  settleMove,
   snap,
   uniqueId,
 } from './ops';
@@ -496,7 +497,7 @@ describe('alignEntities / distributeEntities', () => {
     expect(distributeEntities(one, ['vpc', 'sub', 'db', 'api'], sized, 'x')).toBe(one);
   });
 
-  it('aligns across containers in absolute coordinates, then rehomes and grows like a drop', () => {
+  it('aligns across containers in absolute coordinates; grouping never changes, containers still grow', () => {
     const d: Doc = {
       entities: [
         { tag: 'Group', id: 'g', x: 0, y: 0, width: 200, height: 200 },
@@ -510,14 +511,30 @@ describe('alignEntities / distributeEntities', () => {
       k: { x: 20, y: 20, width: 48, height: 48 },
       m: { x: 150, y: 300, width: 100, height: 40 },
     };
-    // m's centre lands on g's edge: it joins g, and g grows to hold it with the 32 px drop padding.
+    // m's centre lands on g's edge: a drop would adopt it, align does not.
     const top = alignEntities(d, ['k', 'm'], sized, 'top');
-    expect(top.entities[2]).toMatchObject({ x: 150, y: 20, containerId: 'g' });
-    expect(top.entities[0]).toMatchObject({ x: 0, y: 0, width: 282, height: 200 });
-    // k's centre leaves g: it moves out to the root.
+    expect(top.entities[2]).toMatchObject({ x: 150, y: 20 });
+    expect(top.entities[2]!.containerId).toBeUndefined();
+    expect(top.entities[0]).toMatchObject({ x: 0, y: 0, width: 200, height: 200 });
+    // k's centre leaves g: it stays g's child, and g grows to hold it with the 32 px drop padding.
     const right = alignEntities(d, ['k', 'm'], sized, 'right');
-    expect(right.entities[1]).toMatchObject({ x: 202, y: 20 });
-    expect(right.entities[1]!.containerId).toBeUndefined();
+    expect(right.entities[1]).toMatchObject({ x: 202, y: 20, containerId: 'g' });
+    expect(right.entities[0]).toMatchObject({ x: 0, y: 0, width: 282, height: 200 });
+  });
+
+  it('settleMove reparents every listed root, moved or not, then grows containers', () => {
+    const boxes = {
+      vpc: { x: 0, y: 0, width: 400, height: 300 },
+      sub: { x: 200, y: 60, width: 150, height: 150 },
+      api: { x: 40, y: 60, width: 48, height: 48 },
+      db: { x: 220, y: 100, width: 48, height: 48 },
+      web: { x: 230, y: 90, width: 100, height: 40 },
+    };
+    const out = settleMove(doc(), ['web'], boxes);
+    expect(out.entities[4]!.containerId).toBe('sub');
+    expect(settleMove(doc(), [], boxes).entities.map((e) => e.containerId)).toEqual(
+      doc().entities.map((e) => e.containerId),
+    );
   });
 
   it('distributes with equal gaps and leaves the ends in place; needs three roots', () => {

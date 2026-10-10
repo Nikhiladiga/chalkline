@@ -348,7 +348,14 @@ export function Canvas() {
       roots = pasted.newIds;
       for (const [from, to] of pasted.idMap) if (boxes0[from]) boxes0[to] = boxes0[from]!;
     }
+    const moving = withDescendants(base, roots);
     const { doc: moved, offset } = dragEntities(base, roots, g.dx, g.dy);
+    const boxes = Object.fromEntries(
+      Object.entries(boxes0).map(([id, b]) => {
+        const k = moving.has(id) ? 1 : 0;
+        return [id, { ...b, x: b.x + offset.x + k * g.dx, y: b.y + offset.y + k * g.dy }];
+      }),
+    );
     const ui = useUi.getState();
     settle.current = {
       render: ui.render,
@@ -358,7 +365,7 @@ export function Canvas() {
     };
     const api = docApi(g.tabId);
     // Membership changes on drop: each root joins the smallest container under its centre, or the root.
-    api.commit(settleMove(base, moved, roots, boxes0));
+    api.commit(settleMove(moved, roots, boxes));
     if (copy) api.select({ entities: roots, connections: [] });
   };
 

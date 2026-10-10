@@ -298,30 +298,13 @@ export function reparent(doc: Doc, id: string, boxes: Record<string, Box>): Doc 
 }
 
 /**
- * What a drop does after a move: each root that moved joins the smallest container under its centre
- * (or the root), then containers grow to hold their children. `boxes` are the render's boxes for
- * `before`; each follows its entity's move from `before` to `after`.
+ * What a drop does once its boxes have moved: each root joins the smallest container under its centre
+ * (or the root), then containers grow to hold their children. `boxes` are where everything now is.
  */
-export function settleMove(before: Doc, after: Doc, roots: string[], boxes: Record<string, Box>): Doc {
-  const was = new Map(before.entities.map((e) => [e.id, e]));
-  const delta = new Map(
-    after.entities.map((e) => [
-      e.id,
-      { x: e.x - (was.get(e.id)?.x ?? e.x), y: e.y - (was.get(e.id)?.y ?? e.y) },
-    ]),
-  );
-  const moved = Object.fromEntries(
-    Object.entries(boxes).map(([id, b]) => {
-      const d = delta.get(id) ?? { x: 0, y: 0 };
-      return [id, { ...b, x: b.x + d.x, y: b.y + d.y }];
-    }),
-  );
-  let out = after;
-  for (const id of roots) {
-    const d = delta.get(id);
-    if (d && (d.x || d.y)) out = reparent(out, id, moved);
-  }
-  return fitContainers(out, moved);
+export function settleMove(doc: Doc, roots: string[], boxes: Record<string, Box>): Doc {
+  let out = doc;
+  for (const id of roots) out = reparent(out, id, boxes);
+  return fitContainers(out, boxes);
 }
 
 /** Insert a square icon centered at a canvas point, retaining valid document coordinates. */
@@ -442,7 +425,10 @@ function rootBoxes(doc: Doc, ids: string[], boxes: Record<string, Box>): { id: s
   });
 }
 
-/** Move each root by its own delta, then settle like a drop; `doc` itself when nothing moves. */
+/**
+ * Move each root by its own delta; containers grow to hold moved children, as on a drop, but grouping
+ * never changes (draw.io). `doc` itself when nothing moves.
+ */
 function moveEach(
   doc: Doc,
   moves: { id: string; dx: number; dy: number }[],
@@ -451,14 +437,17 @@ function moveEach(
   let out = doc;
   for (const { id, dx, dy } of moves)
     if (Math.round(dx) || Math.round(dy)) out = moveEntities(out, [id], dx, dy);
-  return out === doc
-    ? doc
-    : settleMove(
-        doc,
-        out,
-        moves.map((m) => m.id),
-        boxes,
-      );
+  if (out === doc) return doc;
+  const was = new Map(doc.entities.map((e) => [e.id, e]));
+  const now = new Map(out.entities.map((e) => [e.id, e]));
+  const moved = Object.fromEntries(
+    Object.entries(boxes).map(([id, b]) => {
+      const e0 = was.get(id);
+      const e1 = now.get(id);
+      return [id, e0 && e1 ? { ...b, x: b.x + e1.x - e0.x, y: b.y + e1.y - e0.y } : b];
+    }),
+  );
+  return settleMove(out, [], moved);
 }
 
 /**
