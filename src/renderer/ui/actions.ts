@@ -64,7 +64,6 @@ function showTab(id: string): void {
     render: null,
     errors: [],
     warnings: [],
-    draft: null,
     fitPending: view === null,
     renderTick: ui.renderTick + 1,
   });
@@ -85,7 +84,14 @@ export function newTab(): void {
 export function closeTab(id = useTabs.getState().activeId): void {
   const t = tabState(id);
   if (!t) return;
-  if (t.dirty && !window.confirm(`Discard unsaved changes to “${tabTitle(t)}”?`)) return;
+  const title = tabTitle(t);
+  const ask = t.busy
+    ? `An AI run is still going in “${title}”. Stop it and close the tab?${t.dirty ? ' Unsaved changes will be lost.' : ''}`
+    : t.dirty
+      ? `Discard unsaved changes to “${title}”?`
+      : null;
+  // Removing the tab unmounts its AI panel, which cancels the run.
+  if (ask && !window.confirm(ask)) return;
   const wasActive = id === useTabs.getState().activeId;
   if (wasActive) leaveActiveTab();
   const next = removeTab(id);
@@ -101,7 +107,6 @@ export function confirmDiscard(): boolean {
 
 export function newDoc(): void {
   if (!confirmDiscard()) return;
-  useUi.getState().set({ draft: null });
   useDoc.getState().load(emptyDoc(), null);
   void api().invoke('recovery:clear');
 }
@@ -111,7 +116,6 @@ export function loadText(text: string, path: string | null): void {
     const json = JSON.parse(text);
     const doc = toSplit(json);
     useDoc.getState().load(typeof json.title === 'string' ? { title: json.title, ...doc } : doc, path);
-    useUi.getState().set({ draft: null });
     void api().invoke('recovery:clear');
     requestFitAfterRender();
   } catch (e) {
@@ -162,7 +166,6 @@ export async function save(as = false): Promise<void> {
       if (tabState(id)?.revision !== draftState.revision) return;
       const doc = toSplit(json);
       ops.acceptCodeDraft(typeof json.title === 'string' ? { title: json.title, ...doc } : doc, text);
-      if (useTabs.getState().activeId === id) useUi.getState().set({ draft: null });
     }
     const tab = tabState(id);
     if (!tab) return;

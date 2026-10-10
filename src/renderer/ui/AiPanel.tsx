@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import aliases from '../../../icons/aliases.json';
 import names from '../../../icons/names.json';
 import { canDeepScan, type PublicSettings } from '../../shared/ipc';
 import type { CodeProject, ProjectScan } from '../../shared/project';
 import { type AiResult, runAi } from '../ai/pipeline';
-import { useDoc } from '../doc/store';
+import { docApi, patchTab, tabState, tabTitle, useTab, useTabs } from '../doc/store';
 import { getResolver, render, validate } from '../engine/engine';
 import { applyTheme } from '../engine/theme';
 import type { Doc } from '../engine/types';
 import { ipcMessage } from './actions';
+import { refreshModels, saveAiSettings, useAiSettings } from './aiSettings';
 import { CodeFolder } from './CodeFolder';
 import { DeepScanToggle } from './DeepScanToggle';
 import { IconRefresh } from './icons';
@@ -17,8 +18,9 @@ import { requestFitAfterRender, setPane, useUi } from './uiStore';
 
 type Outcome = (AiResult & { mode: 'generate' | 'edit' }) | null;
 
-export function AiPanel() {
-  const hasDoc = useDoc((s) => s.doc.entities.length > 0);
+/** One per tab, all mounted; only the active tab's panel shows. A run stays bound to `tabId`. */
+export function AiPanel({ tabId, visible }: { tabId: string; visible: boolean }) {
+  const hasDoc = useTab(tabId, (t) => t.doc.entities.length > 0) ?? false;
   const [modeNow, setMode] = useState<'generate' | 'edit'>(hasDoc ? 'edit' : 'generate');
   const mode = modeNow;
   const [prompt, setPrompt] = useState('');
@@ -32,14 +34,15 @@ export function AiPanel() {
   const [running, setRunning] = useState<{ id: string; stage: string; chars: number } | null>(null);
   const [outcome, setOutcome] = useState<Outcome>(null);
   const [aiDoc, setAiDoc] = useState<Doc | null>(null);
-  const [models, setModels] = useState<string[]>([]);
-  const [settings, setSettings] = useState<PublicSettings | null>(null);
-  const [connError, setConnError] = useState<string | null>(null);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const modelRequest = useRef(0);
-  const settingsOpen = useUi((s) => s.settingsOpen);
-  const docNow = useDoc((s) => s.doc);
+  const settings = useAiSettings((s) => s.settings);
+  const models = useAiSettings((s) => s.models);
+  const connError = useAiSettings((s) => s.connError);
+  const loadingModels = useAiSettings((s) => s.loading);
+  const docNow = useTab(tabId, (t) => t.doc);
   const lastHasDoc = useRef(hasDoc);
+  const busy = running !== null;
+  const ops = docApi(tabId);
+  const onScreen = () => useTabs.getState().activeId === tabId;
 
   // Follow the document: an empty canvas means Generate; the first diagram switches to Edit.
   useEffect(() => {
@@ -47,35 +50,23 @@ export function AiPanel() {
     lastHasDoc.current = hasDoc;
   }, [hasDoc]);
 
-  const refresh = useCallback(async () => {
-    const request = ++modelRequest.current;
-    setLoadingModels(true);
-    try {
-      const s: PublicSettings = await window.api.invoke('settings:get');
-      if (request !== modelRequest.current) return;
-      setSettings(s);
-      const list: string[] = await window.api.invoke('llm:models');
-      if (request !== modelRequest.current) return;
-      setModels(list);
-      setConnError(null);
-      if (!s.model && list[0]) {
-        const saved = await window.api.invoke('settings:set', { model: list[0] });
-        setSettings(saved);
-      }
-    } catch (e) {
-      if (request !== modelRequest.current) return;
-      setModels([]);
-      setConnError(ipcMessage(e));
-    } finally {
-      if (request === modelRequest.current) setLoadingModels(false);
-    }
-  }, []);
-  useEffect(() => {
-    if (!settingsOpen) void refresh();
-  }, [settingsOpen, refresh]);
+  // The tab strip shows a spinner on a tab whose AI is running.
+  useEffect(() => patchTab(tabId, { busy }), [tabId, busy]);
+
+  // Closing the tab unmounts its panel: stop the run instead of leaving it working for a tab that is gone.
+  useEffect(
+    () => () => {
+      const a = active.current;
+      if (!a) return;
+      a.cancelled = true;
+      void window.api.invoke('llm:cancel', a.id);
+    },
+    [],
+  );
 
   const checkStopped = (id: string) => {
-    if (active.current?.id !== id || active.current.cancelled) throw new Error('Stopped.');
+    if (active.current?.id !== id || active.current.cancelled || !tabState(tabId))
+      throw new Error('Stopped.');
   };
   const readProject = async (
     selected: CodeProject,
@@ -122,7 +113,8 @@ export function AiPanel() {
 
   const run = async () => {
     const text = prompt.trim();
-    if (active.current || (source === 'folder' ? !project : !text)) return;
+    const start = tabState(tabId);
+    if (!start || active.current || (source === 'folder' ? !project : !text)) return;
     const id = crypto.randomUUID();
     active.current = { id, cancelled: false };
     setRunning({ id, stage: 'generating', chars: 0 });
@@ -136,8 +128,8 @@ export function AiPanel() {
       reads += p.text.match(/(?:^| · )Reading /g)?.length ?? 0;
       setRunning((r) => (r ? { ...r, stage: p.text } : r));
     });
-    const current = useDoc.getState().doc;
-    const currentRevision = useDoc.getState().revision;
+    const current = start.doc;
+    const currentRevision = start.revision;
     try {
       const resolver = await getResolver();
       const s = settings ?? (await window.api.invoke('settings:get'));
@@ -165,14 +157,19 @@ export function AiPanel() {
           validate,
           measure: async (d) => {
             checkStopped(id);
-            // A newer render (user editing meanwhile) can skip ours; try again.
-            for (let i = 0; i < 3; i++) {
-              const r = await render(applyTheme(d, useUi.getState().theme));
-              checkStopped(id);
-              if (r.ok) return r.painted;
-              if (!r.stale) return null;
+            try {
+              // A newer render (user editing meanwhile) can skip ours; try again.
+              for (let i = 0; i < 3; i++) {
+                const r = await render(applyTheme(d, useUi.getState().theme));
+                checkStopped(id);
+                if (r.ok) return r.painted;
+                if (!r.stale) return null;
+              }
+              return null;
+            } finally {
+              // The engine has one scene: when this run's tab is in the background, repaint the tab on screen.
+              if (!onScreen()) useUi.setState((u) => ({ renderTick: u.renderTick + 1 }));
             }
-            return null;
           },
           names,
           aliases,
@@ -193,12 +190,14 @@ export function AiPanel() {
       );
       checkStopped(id);
       if (deep) setDeepReads(reads);
-      const changed = useDoc.getState().revision !== currentRevision;
+      const now = tabState(tabId)!; // checkStopped: still open
+      const changed = now.revision !== currentRevision;
+      const where = onScreen() ? '' : `In “${tabTitle(now)}”: `;
       if (
         result.ok &&
-        (changed || useDoc.getState().codeDraft !== null) &&
+        (changed || now.codeDraft !== null) &&
         !window.confirm(
-          'The diagram or code changed. Replace it with the AI result? Diagram changes stay in undo history; any code draft will be discarded.',
+          `${where}The diagram or code changed. Replace it with the AI result? Diagram changes stay in undo history; any code draft will be discarded.`,
         )
       ) {
         setOutcome({
@@ -210,15 +209,17 @@ export function AiPanel() {
         return;
       }
       if (result.ok) {
-        useUi.getState().set({ draft: null });
-        useDoc.getState().discardCodeDraft();
+        ops.discardCodeDraft();
         const next = current.title ? { title: current.title, ...result.doc } : result.doc;
-        useDoc.getState().commit(next);
+        ops.commit(next);
         setAiDoc(next);
-        if (mode === 'generate') requestFitAfterRender();
+        if (mode === 'generate') {
+          if (onScreen()) requestFitAfterRender();
+          else patchTab(tabId, { view: null }); // fit when the tab is next shown
+        }
         setPrompt('');
       } else if (result.draft) {
-        if (changed || useDoc.getState().codeDraft !== null) {
+        if (changed || now.codeDraft !== null) {
           setOutcome({
             ...result,
             message: `${result.message} Your newer code and diagram were kept.`,
@@ -226,9 +227,12 @@ export function AiPanel() {
           });
           return;
         }
-        useDoc.getState().setCodeDraft(result.draft);
-        useUi.getState().set({ draft: result.draft, leftMode: 'code' });
-        setPane('left', true);
+        // The draft belongs to this tab; open the code pane only when the tab is on screen.
+        ops.setCodeDraft(result.draft);
+        if (onScreen()) {
+          useUi.getState().set({ leftMode: 'code' });
+          setPane('left', true);
+        }
       }
       setOutcome({ ...result, mode });
     } catch (e) {
@@ -256,7 +260,7 @@ export function AiPanel() {
   const model = settings?.model ?? '';
 
   return (
-    <div className="section" data-testid="ai-panel">
+    <div className="section" data-testid="ai-panel" hidden={!visible}>
       <div className="progress" data-running={running ? '' : undefined} aria-hidden="true" />
       <div className="section-head">
         <span className="section-title">AI</span>
@@ -312,7 +316,7 @@ export function AiPanel() {
           provider={settings.provider}
           checked={settings.deepScan}
           busy={Boolean(running)}
-          onChange={async (on) => setSettings(await window.api.invoke('settings:set', { deepScan: on }))}
+          onChange={(on) => void saveAiSettings({ deepScan: on })}
         />
       )}
       <textarea
@@ -346,9 +350,7 @@ export function AiPanel() {
           aria-label="Model"
           disabled={loadingModels || Boolean(running)}
           value={model}
-          onChange={async (e) =>
-            setSettings(await window.api.invoke('settings:set', { model: e.target.value }))
-          }
+          onChange={(e) => void saveAiSettings({ model: e.target.value })}
         >
           {!models.includes(model) && <option value={model}>{model || 'No model'}</option>}
           {models.map((m) => (
@@ -362,7 +364,7 @@ export function AiPanel() {
           className="btn icon secondary"
           aria-label="Refresh models"
           disabled={loadingModels || Boolean(running)}
-          onClick={() => void refresh()}
+          onClick={() => void refreshModels()}
         >
           {loadingModels ? <span className="spinner" /> : <IconRefresh />}
         </button>
@@ -397,7 +399,7 @@ export function AiPanel() {
       {connError && !running && (
         <div className="note bad">
           {connError}{' '}
-          <button type="button" className="btn" onClick={() => void refresh()}>
+          <button type="button" className="btn" onClick={() => void refreshModels()}>
             Retry
           </button>
         </div>
@@ -423,7 +425,7 @@ export function AiPanel() {
               )}
               <div className="note-actions">
                 {aiDoc && docNow === aiDoc && (
-                  <button type="button" className="btn secondary" onClick={() => useDoc.getState().undo()}>
+                  <button type="button" className="btn secondary" onClick={() => ops.undo()}>
                     Undo AI change
                   </button>
                 )}

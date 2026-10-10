@@ -1,4 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type ElectronApplication, expect, type Page, test } from '@playwright/test';
@@ -222,4 +224,179 @@ test('many tabs scroll the strip and never push the toolbar or canvas off-screen
   expect(m.settings).toBeLessThanOrEqual(m.w);
   expect(m.canvas).toBeLessThanOrEqual(m.w);
   expect(m.scrolls).toBe(true);
+});
+
+/** Mock OpenAI-compatible LLM that answers after `ms` (default: DOC plus a "db" shape), so a run is still going when the test acts. */
+async function slowLlm(ms = 1500, reply?: string): Promise<{ url: string; close: () => void }> {
+  const text =
+    reply ??
+    JSON.stringify({
+      ...DOC,
+      entities: [...DOC.entities, { tag: 'Shape', id: 'db', x: 560, y: 40, texts: [{ text: 'DB' }] }],
+    });
+  const server = createServer((req, res) => {
+    if (req.url?.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'mock' }] }));
+    req.resume();
+    req.on('end', () =>
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`);
+      }, ms),
+    );
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
+    close: () => server.close(),
+  };
+}
+/** Every tab has its own AI panel; only the visible one counts. */
+const shown = (page: Page, testId: string) => page.locator(`[data-testid="${testId}"]:visible`);
+const stopButton = (page: Page) => page.getByRole('button', { name: 'Stop', exact: true });
+const spinnerAt = (page: Page, i: number) => page.locator('.doc-tab').nth(i).locator('.spinner');
+const startAi = async (page: Page, prompt = 'add a database') => {
+  await shown(page, 'ai-prompt').fill(prompt);
+  await shown(page, 'ai-run').click();
+  await expect(stopButton(page)).toBeVisible();
+};
+
+// Review Focus 1
+test('an AI result lands in the tab that started it, not the tab on screen', async () => {
+  const llm = await slowLlm();
+  try {
+    const page = await open({ DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    await load(page, DOC);
+    await startAi(page);
+    await expect(page.locator('.stage-line:visible')).toHaveCount(1);
+    await newTabButton(page).click();
+    await load(page, SOLO);
+    await expect(spinnerAt(page, 0)).toBeVisible();
+    // Tab 2 shows its own AI panel: empty prompt, idle, no progress line from tab 1's run.
+    await expect(shown(page, 'ai-prompt')).toHaveValue('');
+    await expect(stopButton(page)).toBeHidden();
+    await expect(page.locator('.stage-line:visible')).toHaveCount(0);
+    await expect.poll(async () => ids(await docIn(page, 0)), { timeout: 15_000 }).toContain('db');
+    expect(ids(await docIn(page, 1))).toEqual(['solo']);
+    await expect(spinnerAt(page, 0)).toHaveCount(0);
+    await expect(shown(page, 'ai-outcome')).toHaveCount(0);
+    // The canvas shows this tab's diagram, not the background run's last measure.
+    await expect(page.locator('#eraser-scene [data-mdp-id="solo"]')).toHaveCount(1);
+    await expect(page.locator('#eraser-scene [data-mdp-id="db"]')).toHaveCount(0);
+    await tabs(page).first().click();
+    await expect(shown(page, 'ai-outcome')).toContainText('Diagram updated');
+    await expect(page.locator('.hit[data-id="db"]')).toBeVisible();
+    await shown(page, 'ai-outcome').getByRole('button', { name: 'Undo AI change' }).click();
+    expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+    expect(ids(await docIn(page, 1))).toEqual(['solo']);
+  } finally {
+    llm.close();
+  }
+});
+
+test('a changed background tab confirms by name, and the result still lands in that tab', async () => {
+  const llm = await slowLlm(2000);
+  try {
+    const page = await open({ DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    await load(page, DOC);
+    await startAi(page);
+    // Edit tab 1 while its run is going, then move to tab 2 before the result arrives.
+    await page.evaluate(() => {
+      const s = (window as any).__dg.doc.getState();
+      s.commit({ ...s.doc, entities: s.doc.entities.map((e: any) => ({ ...e, x: e.x + 10 })) });
+    });
+    await newTabButton(page).click();
+    await load(page, SOLO);
+    const message = new Promise<string>((resolve) =>
+      page.once('dialog', (d) => {
+        resolve(d.message());
+        void d.accept();
+      }),
+    );
+    expect(await message).toBe(
+      'In “Untitled”: The diagram or code changed. Replace it with the AI result? Diagram changes stay in undo history; any code draft will be discarded.',
+    );
+    await expect.poll(async () => ids(await docIn(page, 0))).toContain('db');
+    expect(ids(await docIn(page, 1))).toEqual(['solo']);
+    await expect(page.locator('#eraser-scene [data-mdp-id="db"]')).toHaveCount(0);
+  } finally {
+    llm.close();
+  }
+});
+
+test('Stop still stops a run after switching away and back, and leaves the other tab running', async () => {
+  const llm = await slowLlm(4000);
+  try {
+    const page = await open({ DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    await load(page, DOC);
+    await startAi(page);
+    await newTabButton(page).click();
+    await expect(stopButton(page)).toBeHidden();
+    await load(page, DOC);
+    await startAi(page);
+    await tabs(page).first().click();
+    await stopButton(page).click();
+    await expect(shown(page, 'ai-outcome')).toContainText('Stopped.');
+    await expect(spinnerAt(page, 0)).toHaveCount(0);
+    await expect(spinnerAt(page, 1)).toBeVisible();
+    expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+    await expect.poll(async () => ids(await docIn(page, 1)), { timeout: 15_000 }).toContain('db');
+    expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+  } finally {
+    llm.close();
+  }
+});
+
+test('closing a tab with a running AI asks, stops the run, and nothing lands elsewhere', async () => {
+  const llm = await slowLlm(2000);
+  try {
+    const page = await open({ DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    await load(page, DOC);
+    await newTabButton(page).click();
+    await load(page, DOC);
+    await startAi(page);
+    let message = '';
+    page.once('dialog', (d) => {
+      message = d.message();
+      void d.dismiss();
+    });
+    await closeAt(page, 1);
+    expect(message).toBe('An AI run is still going in “Untitled 2”. Stop it and close the tab?');
+    await expect(tabs(page)).toHaveCount(2);
+    await expect(stopButton(page)).toBeVisible();
+    page.once('dialog', (d) => {
+      message = d.message();
+      void d.accept();
+    });
+    await closeAt(page, 1);
+    await expect(tabs(page)).toHaveCount(1);
+    await page.waitForTimeout(3000);
+    expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+  } finally {
+    llm.close();
+  }
+});
+
+test('an invalid AI draft becomes the code draft of the tab that asked for it', async () => {
+  const llm = await slowLlm(800, '{ not valid json');
+  try {
+    const page = await open({ DG_LLM_BASE_URL: llm.url, DG_LLM_MODEL: 'mock' });
+    await load(page, DOC);
+    await startAi(page);
+    await newTabButton(page).click();
+    await page.getByRole('tab', { name: 'Code', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__dg.tabs.getState().tabs[0].codeDraft), {
+        timeout: 15_000,
+      })
+      .toBe('{ not valid json');
+    await expect(spinnerAt(page, 0)).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).__dg.doc.getState().codeDraft)).toBeNull();
+    await expect(page.locator('.draft-bar')).toBeHidden();
+    await expect(page.locator('.cm-content')).toContainText('"entities": []');
+    await tabs(page).first().click();
+    await expect(page.locator('.draft-bar')).toBeVisible();
+    await expect(page.locator('.cm-content')).toHaveText('{ not valid json');
+  } finally {
+    llm.close();
+  }
 });

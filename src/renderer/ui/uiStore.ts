@@ -23,8 +23,6 @@ interface UiState {
   warnings: Issue[];
   zoom: number;
   pan: { x: number; y: number };
-  /** Text shown in the code pane instead of the document (an AI draft that failed validation). */
-  draft: string | null;
   showCode: boolean;
   leftMode: 'icons' | 'code';
   showAi: boolean;
@@ -48,7 +46,6 @@ export const useUi = create<UiState>((set) => ({
   warnings: [],
   zoom: 1,
   pan: { x: 40, y: 40 },
-  draft: null,
   showCode: true,
   leftMode: 'icons',
   showAi: true,

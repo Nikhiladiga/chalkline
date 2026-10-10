@@ -171,3 +171,72 @@ out({type:'result',structured_output:${JSON.stringify(generated)}});
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a deep scan in a background tab keeps its progress, coverage and laid-out result in that tab', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dg-deep-tabs-'));
+  const root = join(dir, 'sample-api');
+  const ud = join(dir, 'ud');
+  const cli = join(dir, 'claude');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  mkdirSync(ud, { recursive: true });
+  writeFileSync(join(root, 'src/server.ts'), "app.get('/users', () => db.query('select 1'));\n");
+  const generated = {
+    entities: [
+      { tag: 'Shape', id: 'api', x: 0, y: 0, texts: [{ text: 'API' }] },
+      { tag: 'Shape', id: 'db', x: 0, y: 0, texts: [{ text: 'Database' }] },
+    ],
+    connections: [{ from: 'api', to: 'db', label: 'SQL' }],
+  };
+  writeFileSync(
+    cli,
+    `#!/usr/bin/env node
+let p='';process.stdin.on('data',s=>p+=s);process.stdin.on('end',()=>{
+const out=o=>console.log(JSON.stringify(o));
+out({type:'system',subtype:'init',cwd:process.cwd(),tools:['Glob','Grep','Read','StructuredOutput'],permissionMode:'dontAsk'});
+out({type:'assistant',message:{content:[{type:'tool_use',id:'t1',name:'Read',input:{file_path:process.cwd()+'/src/server.ts'}}]},parent_tool_use_id:null});
+setTimeout(()=>out({type:'result',structured_output:${JSON.stringify(generated)}}),2500);
+});`,
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    join(ud, 'settings.json'),
+    JSON.stringify({
+      provider: 'claude-code',
+      cliPath: cli,
+      model: 'sonnet',
+      hostedIcons: false,
+      deepScan: true,
+    }),
+  );
+  const { app, page } = await launch({ DG_USER_DATA: ud, DG_TEST_PROJECT_DIR: root });
+  const shown = (sel: string) => page.locator(`${sel}:visible`);
+  const tabs = page.getByRole('tablist', { name: 'Open diagrams' }).getByRole('tab');
+  const docIn = (i: number) => page.evaluate((n) => (window as any).__dg.tabs.getState().tabs[n].doc, i);
+  try {
+    await page.waitForFunction(() => (window as any).__dg);
+    await shown('[aria-label="Diagram source"]').selectOption('folder');
+    await page.getByRole('button', { name: 'Choose folder', exact: true }).click();
+    await shown('[data-testid="ai-run"]').click();
+    await expect(shown('.stage-line')).toContainText('Reading src/server.ts');
+    await page.getByRole('button', { name: 'New tab' }).click();
+    // Tab 2: no progress line, no folder, no coverage from tab 1's run.
+    await expect(shown('.stage-line')).toHaveCount(0);
+    await expect(shown('[aria-label="Diagram source"]')).toHaveValue('description');
+    await shown('[aria-label="Diagram source"]').selectOption('folder');
+    await expect(shown('[data-testid="code-folder"]')).toContainText('Choose a project to map');
+    await expect(shown('.code-folder-coverage')).toHaveCount(0);
+    await expect(page.locator('.doc-tab').first().locator('.spinner')).toHaveCount(0, { timeout: 15_000 });
+    expect((await docIn(1)).entities).toEqual([]);
+    const laidOut = await docIn(0);
+    expect(laidOut.entities.map((e: any) => e.id)).toEqual(['api', 'db']);
+    // Auto-layout ran for tab 1's new deep diagram, so the two shapes no longer overlap at the origin.
+    expect(laidOut.entities.some((e: any) => e.x !== 0 || e.y !== 0)).toBe(true);
+    await tabs.first().click();
+    await expect(shown('[data-testid="ai-outcome"]')).toContainText('Diagram generated');
+    await expect(shown('.code-folder-coverage')).toContainText('Last run: 1 file read.');
+    await expect(page.locator('.hit[data-id="db"]')).toBeVisible();
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
