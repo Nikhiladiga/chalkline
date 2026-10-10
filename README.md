@@ -101,6 +101,18 @@ Use **Rescan** to refresh evidence or **Edit → Apply** to update the diagram a
 
 Large repositories use bounded excerpts, so scan coverage and model-authored source references should be reviewed. Oversized files and excluded paths are skipped, and the review step shows what was scanned.
 
+#### Deep scan
+
+With **Source → Code folder** and the Claude Code harness, you can turn on **Deep scan**. It is off by default, Chalkline asks you to confirm before turning it on, and the choice is remembered. Instead of sending bounded excerpts, the first generation call lets the CLI explore the chosen folder itself with read-only tools and asks for a detailed diagram: 25–60 elements grouped by service, connections labelled with protocol and operation, and a short source note. The stage line shows each file it reads. Repair rounds still run isolated.
+
+- **Claude Code:** `Read`, `Grep` and `Glob` only, confined to the folder (`--restricted`). No edits, shell, web, MCP, hooks or user settings. Chalkline checks that Claude Code reports exactly these restrictions when it starts and stops the run if it doesn't. Capped at 60 steps and 15 minutes.
+- **Blocked files** (any letter case, at any depth, best effort): `.env`, `.env.*`, `.envrc`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `.npmrc`, `.netrc`, `.pypirc`, `.git-credentials`, `credentials*`, `secret`, `secret.*`, `secrets`, `secrets.*`, `service-account*`, `service_account*`, `*.tfstate*`; the folders `secret/`, `secrets/`, `.git/`, `.hg/`, `.svn/`, `.ssh/`, `.aws/`, `.gnupg/`, `.kube/`, `.terraform/`, `node_modules/`; and agent files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `SKILL.md`, `copilot-instructions.md`, `.cursorrules`, `.windsurfrules`, `.clinerules`, `.claude/`, `.codex/`, `.agents/`, `.cursor/`, `.gemini/`, `.opencode/`).
+- **Deep scan does not honour `.gitignore`.** Gitignored local config (for example `terraform.tfvars` or `local.settings.json`) is readable unless it matches the list above.
+- Your home folder, any folder containing it and a filesystem root are refused; choose a project folder.
+- **Codex:** coming after verification.
+
+Deep scan uses your plan's quota and can take several minutes on large repositories. If Chalkline asks for a newer CLI, run `claude update`.
+
 ### Draw and refine manually
 
 In **Icons**, search or filter the catalog and drag an icon onto the canvas. Drag between connection ports to link services. Use **Details** to edit captions and properties, or **Code** for direct JSON editing with `Ctrl+Space` completion. Invalid code drafts must be fixed or discarded before saving.
@@ -114,6 +126,8 @@ Save diagrams as editable JSON. PNG is available at 1×/2× with optional transp
 Diagram files and manual edits stay on your computer. Choosing or rescanning a folder does not call AI. **Generate** and **Apply** send prompts, diagram data and selected source excerpts to your configured provider.
 
 The scanner respects nested `.gitignore` rules and skips dependencies, build output, symlinks, binaries, oversized files, credential files and agent instructions. Common literal secrets are redacted, but detection is best effort. Review confidential code before sending it to a provider. Generated diagrams can contain project details derived from that evidence.
+
+**Deep scan** (opt-in, Claude Code only) is the exception to excerpt-only sending. Claude Code reads files in the chosen folder and sends what it reads to Anthropic **without redaction**, so secrets hard-coded in ordinary source or config files can reach the provider. It is blocked from the secret and agent files listed above, but it does not honour `.gitignore`.
 
 API keys are stored with Electron's `safeStorage` and are not exposed to the renderer. Saved diagrams do not embed keys, settings, source-folder access or the full scan context. Settings, recovery data and cached icons use the legacy `diagrammer` application-data directory.
 

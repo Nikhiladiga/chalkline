@@ -19,12 +19,16 @@ export async function chooseProject(win: BrowserWindow): Promise<CodeProject | n
   return { id, name: basename(path) };
 }
 
+export function projectPath(id: string): string {
+  const path = folders.get(id);
+  if (!path) throw new Error('Choose the code folder again before scanning.');
+  return path;
+}
+
 export function scanSelectedProject(
   projectId: string,
   maxChars: number,
   signal: AbortSignal,
 ): Promise<ProjectScan> {
-  const path = folders.get(projectId);
-  if (!path) throw new Error('Choose the code folder again before scanning.');
-  return scanProject(path, { maxChars, signal });
+  return scanProject(projectPath(projectId), { maxChars, signal });
 }

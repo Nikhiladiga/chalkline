@@ -3,6 +3,13 @@ import { z } from 'zod';
 /** 'lmstudio' is read from old settings files only; main migrates it to 'openai' (an API preset now). */
 export const Provider = z.enum(['lmstudio', 'openai', 'claude-code', 'codex']);
 export type Provider = z.infer<typeof Provider>;
+/**
+ * Providers that can Deep scan; the UI and main both check this. Codex's deep code and tests stay, but it is
+ * hidden until the Codex gate in the deep-scan manual acceptance passes; then add 'codex' here and word the
+ * consent dialog in main/index.ts for it.
+ */
+export const DEEP_SCAN_PROVIDERS: readonly Provider[] = ['claude-code'];
+export const canDeepScan = (p: Provider): boolean => DEEP_SCAN_PROVIDERS.includes(p);
 
 export const Settings = z.object({
   provider: Provider,
@@ -15,6 +22,8 @@ export const Settings = z.object({
   contextSize: z.number().int().min(1024).max(1_000_000),
   hostedIcons: z.boolean(),
   theme: z.enum(['dark', 'light']),
+  /** Opt-in: let the Claude Code / Codex CLI read the chosen code folder with read-only tools. */
+  deepScan: z.boolean(),
 });
 export type Settings = z.infer<typeof Settings>;
 /** What the renderer sees: never the key itself. */
@@ -38,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   contextSize: 16384,
   hostedIcons: true,
   theme: 'dark',
+  deepScan: false,
 };
 
 const ChatMsg = z.object({ role: z.enum(['system', 'user', 'assistant']), content: z.string() });
@@ -61,6 +71,8 @@ export const channels = {
     id: z.string(),
     messages: z.array(ChatMsg).min(1),
     schema: z.record(z.string(), z.unknown()).optional(),
+    /** Deep scan only: an opaque folder handle from project:choose, never a path. */
+    projectId: z.string().uuid().optional(),
   }),
   'llm:cancel': z.string(),
   'project:choose': z.undefined(),
@@ -96,7 +108,7 @@ export interface OpenedFile {
 /** The `window.api` surface the preload exposes. */
 export interface Api {
   invoke<C extends Channel>(channel: C, arg?: Args<C>): Promise<any>;
-  on(event: 'llm:chunk' | 'menu' | 'export:render', cb: (payload: any) => void): () => void;
+  on(event: 'llm:chunk' | 'llm:progress' | 'menu' | 'export:render', cb: (payload: any) => void): () => void;
   /** Export window → main: the rendered scene's rect (or an error). */
   exportReady(payload: { width: number; height: number } | { error: string }): void;
 }

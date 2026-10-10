@@ -8,6 +8,77 @@ import type { ChatMsg, Settings } from '../shared/ipc';
 /** Model aliases `claude --model` accepts; "default" leaves the choice to the CLI. */
 export const CLI_MODELS = ['default', 'opus', 'sonnet', 'haiku'];
 const IDLE_MS = 300_000;
+/** Deep scan: the CLI runs in the chosen folder with read-only tools and reports what it reads. */
+export interface Deep {
+  /** realpath of the chosen folder. */
+  cwd: string;
+  onProgress(text: string): void;
+}
+/** Wall clock for one deep run, shared with Codex. Mutable only so tests can shorten it. */
+export const deepLimits = { wallMs: 15 * 60_000 };
+export const DEEP_WALL_ERROR = 'Deep scan took longer than 15 minutes and was stopped.';
+const MAX_TURNS = 60;
+const DEEP_TOOLS = 'Read,Grep,Glob';
+// Mirrors projectScan's SECRET/INSTRUCTIONS and the secret/agent/VCS entries of SKIP_DIRS (not .gitignore).
+// Read() rules also stop Grep and Glob.
+const SPEC_DENY = [
+  '**/.env',
+  '**/.env.*',
+  '**/*.pem',
+  '**/*.key',
+  '**/*.p12',
+  '**/*.pfx',
+  '**/*.jks',
+  '**/*.keystore',
+  '**/id_rsa*',
+  '**/id_ed25519*',
+  '**/id_ecdsa*',
+  '**/.npmrc',
+  '**/.netrc',
+  '**/.pypirc',
+  '**/credentials*',
+  '**/secret/**',
+  '**/secrets/**',
+  '**/secrets.*',
+  '**/service-account*',
+  '**/service_account*',
+  '**/*.tfstate',
+  '**/*.tfstate.*',
+  '**/.git/**',
+  '**/.ssh/**',
+  '**/.aws/**',
+  '**/.gnupg/**',
+  '**/.kube/**',
+  '**/node_modules/**',
+  '**/CLAUDE.md',
+  '**/AGENTS.md',
+  '**/GEMINI.md',
+  '**/.cursorrules',
+  '**/.claude/**',
+  '**/.codex/**',
+  '**/.agents/**',
+  '**/.cursor/**',
+  '**/secret',
+  '**/secret.*',
+  '**/secrets',
+  '**/.envrc',
+  '**/.git-credentials',
+  '**/.hg/**',
+  '**/.svn/**',
+  '**/.gemini/**',
+  '**/.opencode/**',
+  '**/.terraform/**',
+  '**/SKILL.md',
+  '**/copilot-instructions.md',
+  '**/.windsurfrules',
+  '**/.clinerules',
+];
+// Claude Code 2.1.295 matches deny rules case-insensitively (observed from its bundled matcher, not documented);
+// we add UPPER/lower/Capitalized variants as defense in depth in case a future version changes this.
+const capitalize = (g: string) => g.replace(/[a-z]/, (c) => c.toUpperCase());
+export const DENY_READ = [
+  ...new Set([...SPEC_DENY, ...SPEC_DENY.flatMap((g) => [g.toUpperCase(), g.toLowerCase(), capitalize(g)])]),
+];
 
 export class CliMissing extends Error {
   constructor(where: string, name = 'Claude Code') {
@@ -94,16 +165,114 @@ export function transcript(messages: ChatMsg[]): string {
   return `${body}\n\nAnswer the last <user> message. The <assistant> turns show the expected output format.`;
 }
 
+/** Progress lines stay on one line of the stage indicator. */
+export const clip = (text: string) => (text.length > 80 ? `${text.slice(0, 79)}…` : text);
+const DENIED = /denied by your permission settings|outside .*--restricted/;
+
+// Path redaction is pure and platform-independent so Windows paths work from any host.
+const TOKEN = String.raw`[^\s'"\`;|&()<>]`;
+const ABS_PATH = new RegExp(
+  String.raw`file:\/\/\/?${TOKEN}*|(?<!\w)[A-Za-z]:[\\/]${TOKEN}*|\\\\${TOKEN}+|(?<![\w.~])\/${TOKEN}*`,
+  'g',
+);
+const isAbs = (p: string) => /^(file:\/\/|[A-Za-z]:[\\/]|\\\\|\/)/.test(p);
+const parts = (p: string) => {
+  const q = p.replace(/^file:\/\/\/?/, (m) => (m.length > 7 ? '/' : '')).replace(/\\/g, '/');
+  const win = /^[A-Za-z]:\//.test(q) || /^\/\/[^/]/.test(p.replace(/\\/g, '/'));
+  const segs: string[] = [];
+  for (const seg of q.split('/')) {
+    if (seg === '..') segs.pop();
+    else if (seg && seg !== '.') segs.push(seg);
+  }
+  return { win, segs };
+};
+const under = (a: { win: boolean; segs: string[] }, root: { win: boolean; segs: string[] }) => {
+  if (!root.segs.length || a.win !== root.win || a.segs.length < root.segs.length) return false;
+  const norm = (x = '') => (a.win ? x.toLowerCase() : x);
+  return root.segs.every((seg, i) => norm(seg) === norm(a.segs[i]));
+};
+
+/**
+ * One path for display: inside cwd it is repo-relative (`./` prefix when `mark`), inside home it is `~/…`,
+ * anything else is its basename. `..` segments collapse first. Relative paths resolve against cwd.
+ */
+export function redactPath(p: string, cwd: string, home?: string, mark = true): string {
+  const c = parts(cwd);
+  const a = isAbs(p) ? parts(p) : parts(`${cwd}/${p}`);
+  if (under(a, c)) {
+    const rest = a.segs.slice(c.segs.length).join('/');
+    return mark ? (rest ? `./${rest}` : '.') : rest;
+  }
+  if (home && under(a, parts(home)))
+    return `~${a.segs
+      .slice(parts(home).segs.length)
+      .map((x) => `/${x}`)
+      .join('')}`;
+  return a.segs.at(-1) ?? p;
+}
+
+/** Redact every absolute path in a shell command (drive-letter, UNC, POSIX and file:// forms). */
+export function redactPaths(command: string, cwd: string, home?: string): string {
+  return command.replace(ABS_PATH, (tok) => redactPath(tok, cwd, home));
+}
+
+/** One progress line for a deep-scan stream event, or null for events worth no line. */
+export function claudeProgress(ev: any, cwd: string): string | null {
+  const blocks: any[] = Array.isArray(ev?.message?.content) ? ev.message.content : [];
+  if (ev?.type === 'user') {
+    const denied = blocks.some(
+      (b) =>
+        b?.type === 'tool_result' &&
+        b.is_error &&
+        DENIED.test(typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '')),
+    );
+    return denied ? 'Skipped a protected file' : null;
+  }
+  if (ev?.type !== 'assistant') return null;
+  const rel = (p: string) => redactPath(p, cwd, undefined, false);
+  const steps = blocks
+    .filter((b) => b?.type === 'tool_use')
+    .map((b) => {
+      const input = b.input ?? {};
+      if (b.name === 'Read') return `Reading ${rel(String(input.file_path ?? ''))}`;
+      if (b.name === 'Grep') {
+        const where = input.path ? rel(String(input.path)) : '';
+        if (!input.pattern) return 'Searching the repo';
+        return `Searching for "${redactPaths(String(input.pattern), cwd)}"${where ? ` in ${where}` : ''}`;
+      }
+      if (b.name === 'Glob') {
+        const pattern = String(input.pattern ?? '');
+        // Absolute patterns are shown repo-relative, or as a basename when outside the folder.
+        return `Listing ${isAbs(pattern) ? rel(pattern) : pattern}`.trimEnd();
+      }
+      if (b.name === 'StructuredOutput') return 'Writing diagram';
+      return null;
+    })
+    .filter(Boolean);
+  return steps.length ? clip(steps.join(' · ')) : null;
+}
+
+const INIT_TOOLS = new Set(['Read', 'Grep', 'Glob', 'StructuredOutput']);
+export const DEEP_INIT_ERROR =
+  "Claude Code didn't apply Deep scan restrictions; update Claude Code or turn Deep scan off.";
+/** Deep scan: Claude's init event must confirm read-only tools, dontAsk and the folder as cwd. */
+const initApplied = (ev: any, cwd: string) =>
+  Array.isArray(ev.tools) &&
+  ev.tools.every((t: unknown) => INIT_TOOLS.has(String(t))) &&
+  ev.permissionMode === 'dontAsk' &&
+  (process.platform === 'win32' ? String(ev.cwd).toLowerCase() === cwd.toLowerCase() : ev.cwd === cwd);
+
 /** Run `claude -p` once: system prompt from a file, conversation on stdin, output as stream-json. */
 export function cliChat(
   s: Settings,
   req: { messages: ChatMsg[]; schema?: object },
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  deep?: Deep,
 ): Promise<string> {
   signal.throwIfAborted();
   const bin = findClaude(s.cliPath);
-  // A fresh empty cwd: nothing for the CLI to read, and no project CLAUDE.md.
+  // A fresh temp dir for system.md (and deny.json). Without Deep scan it is also the empty cwd.
   const dir = mkdtempSync(join(tmpdir(), 'dg-claude-'));
   const sysFile = join(dir, 'system.md');
   writeFileSync(
@@ -113,6 +282,9 @@ export function cliChat(
       .map((m) => m.content)
       .join('\n\n'),
   );
+  const denyFile = join(dir, 'deny.json');
+  if (deep)
+    writeFileSync(denyFile, JSON.stringify({ permissions: { deny: DENY_READ.map((g) => `Read(${g})`) } }));
   const args = [
     '-p',
     '--output-format',
@@ -122,13 +294,26 @@ export function cliChat(
     '--system-prompt-file',
     sysFile,
     // Isolation: no tools, none of the user's hooks/plugins/skills/CLAUDE.md/MCP, no saved session.
-    '--tools',
-    '',
+    // Deep scan swaps "no tools" for read-only tools confined to cwd, minus secret files.
+    ...(deep
+      ? [
+          '--tools',
+          DEEP_TOOLS,
+          '--allowedTools',
+          DEEP_TOOLS,
+          '--permission-mode',
+          'dontAsk',
+          '--restricted',
+          '--settings',
+          denyFile,
+        ]
+      : ['--tools', '']),
     '--setting-sources',
     '',
     '--strict-mcp-config',
     '--disable-slash-commands',
     '--no-session-persistence',
+    ...(deep ? ['--max-turns', String(MAX_TURNS)] : []),
     ...(s.model && s.model !== 'default' ? ['--model', s.model] : []),
     ...(req.schema ? ['--json-schema', JSON.stringify(req.schema)] : []),
   ];
@@ -143,10 +328,12 @@ export function cliChat(
     let child: ChildProcess;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
+    let wall: NodeJS.Timeout | undefined;
     const finish = (err: Error | null, text?: string) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(wall);
       signal.removeEventListener('abort', onAbort);
       if (child?.exitCode === null) child.kill('SIGTERM');
       rmSync(dir, { recursive: true, force: true });
@@ -160,13 +347,18 @@ export function cliChat(
     if (signal.aborted) return onAbort();
     signal.addEventListener('abort', onAbort);
 
-    child = spawn(bin, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    child = spawn(bin, args, { cwd: deep?.cwd ?? dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
     bump();
+    if (deep) wall = setTimeout(() => finish(new Error(DEEP_WALL_ERROR)), deepLimits.wallMs);
     let buf = '';
     let stderr = '';
     let text = '';
+    let block = '';
+    // Deep scan: no tool may run (and no result count) until an init event confirms the restrictions.
+    let verified = false;
     child.stdout!.setEncoding('utf8');
     child.stdout!.on('data', (chunk: string) => {
+      if (settled) return;
       bump();
       buf += chunk;
       const lines = buf.split('\n');
@@ -178,14 +370,37 @@ export function cliChat(
         } catch {
           continue;
         }
-        if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta') {
+        if (deep && ev.type === 'system' && ev.subtype === 'init') {
+          if (!initApplied(ev, deep.cwd)) return finish(new Error(DEEP_INIT_ERROR));
+          verified = true;
+        }
+        const acts =
+          ['assistant', 'user', 'result'].includes(ev.type) ||
+          (ev.type === 'stream_event' && ev.event?.content_block?.type === 'tool_use');
+        if (deep && !verified && acts) return finish(new Error(DEEP_INIT_ERROR));
+        if (deep) {
+          const step = claudeProgress(ev, deep.cwd);
+          if (step) deep.onProgress(step);
+        }
+        if (ev.type === 'stream_event' && ev.event?.type === 'content_block_start') {
+          block = ev.event.content_block?.name ?? '';
+        } else if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta') {
+          // Deep scan: tool inputs (Read paths, Grep patterns) are not diagram text.
+          if (deep && ev.event.delta?.type === 'input_json_delta' && block !== 'StructuredOutput') continue;
           const piece: string | undefined = ev.event.delta?.partial_json ?? ev.event.delta?.text;
           if (piece) {
             text += piece;
             onChunk(piece);
           }
         } else if (ev.type === 'result') {
-          if (ev.is_error) finish(new Error(`Claude Code: ${String(ev.result ?? ev.subtype).slice(0, 400)}`));
+          if (ev.subtype === 'error_max_turns')
+            finish(
+              new Error(
+                `Deep scan hit its ${MAX_TURNS}-step limit before finishing. Add a narrower focus (e.g. one service) and retry.`,
+              ),
+            );
+          else if (ev.is_error)
+            finish(new Error(`Claude Code: ${String(ev.result ?? ev.subtype).slice(0, 400)}`));
           else
             finish(
               null,
@@ -199,7 +414,13 @@ export function cliChat(
     child.stderr!.on('data', (c) => (stderr += c));
     child.on('error', (e) => finish(e));
     child.on('close', (code) =>
-      finish(new Error(`Claude Code exited (code ${code}) without a result. ${stderr.trim().slice(0, 400)}`)),
+      finish(
+        new Error(
+          deep && /unknown option/.test(stderr)
+            ? 'Deep scan needs a newer Claude Code. Run "claude update", or turn Deep scan off.'
+            : `Claude Code exited (code ${code}) without a result. ${stderr.trim().slice(0, 400)}`,
+        ),
+      ),
     );
     child.stdin!.on('error', (err) => {
       if ((err as NodeJS.ErrnoException).code !== 'EPIPE') finish(err);

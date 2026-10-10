@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import aliases from '../../../icons/aliases.json';
 import names from '../../../icons/names.json';
-import type { PublicSettings } from '../../shared/ipc';
+import { canDeepScan, type PublicSettings } from '../../shared/ipc';
 import type { CodeProject, ProjectScan } from '../../shared/project';
 import { type AiResult, runAi } from '../ai/pipeline';
 import { useDoc } from '../doc/store';
@@ -10,6 +10,7 @@ import { applyTheme } from '../engine/theme';
 import type { Doc } from '../engine/types';
 import { ipcMessage } from './actions';
 import { CodeFolder } from './CodeFolder';
+import { DeepScanToggle } from './DeepScanToggle';
 import { IconRefresh } from './icons';
 import { mod } from './platform';
 import { requestFitAfterRender, setPane, useUi } from './uiStore';
@@ -24,6 +25,8 @@ export function AiPanel() {
   const [source, setSource] = useState<'description' | 'folder'>('description');
   const [project, setProject] = useState<CodeProject | null>(null);
   const [scan, setScan] = useState<ProjectScan | null>(null);
+  /** Files the last deep run read, counted from its progress lines. */
+  const [deepReads, setDeepReads] = useState<number | null>(null);
   const active = useRef<{ id: string; cancelled: boolean } | null>(null);
   const [allowMove, setAllowMove] = useState(false);
   const [running, setRunning] = useState<{ id: string; stage: string; chars: number } | null>(null);
@@ -102,6 +105,7 @@ export function AiPanel() {
       if (!selected) return;
       setProject(selected);
       setScan(null);
+      setDeepReads(null);
       await readProject(selected, id, settings ?? (await window.api.invoke('settings:get')));
     } catch (e) {
       setOutcome({
@@ -126,16 +130,24 @@ export function AiPanel() {
     const off = window.api.on('llm:chunk', (c: { id: string; text: string }) => {
       if (c.id === id) setRunning((r) => (r ? { ...r, chars: r.chars + c.text.length } : r));
     });
+    let reads = 0;
+    const offProgress = window.api.on('llm:progress', (p: { id: string; text: string }) => {
+      if (p.id !== id) return;
+      reads += p.text.match(/(?:^| · )Reading /g)?.length ?? 0;
+      setRunning((r) => (r ? { ...r, stage: p.text } : r));
+    });
     const current = useDoc.getState().doc;
     const currentRevision = useDoc.getState().revision;
     try {
       const resolver = await getResolver();
       const s = settings ?? (await window.api.invoke('settings:get'));
       checkStopped(id);
-      const snapshot = source === 'folder' && project ? await readProject(project, id, s) : null;
+      const deep = source === 'folder' && s.deepScan && canDeepScan(s.provider);
+      // Deep scan: the CLI reads the folder itself, so no excerpts are sent.
+      const snapshot = source === 'folder' && project && !deep ? await readProject(project, id, s) : null;
       const result = await runAi(
         {
-          chat: async (messages, schema) => {
+          chat: async (messages, schema, attempt) => {
             checkStopped(id);
             setRunning((r) => (r ? { ...r, chars: 0 } : r));
             try {
@@ -143,6 +155,8 @@ export function AiPanel() {
                 id,
                 messages,
                 schema: schema as Record<string, unknown>,
+                // Only the first call explores the folder; repairs stay isolated.
+                projectId: deep && attempt === 0 ? project?.id : undefined,
               });
             } catch (e) {
               throw new Error(ipcMessage(e));
@@ -172,9 +186,13 @@ export function AiPanel() {
           current,
           allowMove,
           sourceContext: snapshot?.context,
+          deep,
+          provider: s.provider,
+          iconHint: scan?.context,
         },
       );
       checkStopped(id);
+      if (deep) setDeepReads(reads);
       const changed = useDoc.getState().revision !== currentRevision;
       if (
         result.ok &&
@@ -222,6 +240,7 @@ export function AiPanel() {
       });
     } finally {
       off();
+      offProgress();
       active.current = null;
       setRunning(null);
       // measure() may have replaced the visible scene with an intermediate one.
@@ -282,8 +301,18 @@ export function AiPanel() {
           project={project}
           scan={scan}
           busy={Boolean(running)}
+          deep={Boolean(settings?.deepScan && canDeepScan(settings.provider))}
+          deepReads={deepReads}
           choose={() => void previewProject(true)}
           rescan={() => void previewProject(false)}
+        />
+      )}
+      {source === 'folder' && settings && canDeepScan(settings.provider) && (
+        <DeepScanToggle
+          provider={settings.provider}
+          checked={settings.deepScan}
+          busy={Boolean(running)}
+          onChange={async (on) => setSettings(await window.api.invoke('settings:set', { deepScan: on }))}
         />
       )}
       <textarea

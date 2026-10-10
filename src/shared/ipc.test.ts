@@ -51,6 +51,23 @@ describe('IPC payload validation', () => {
     expect(() => parseArgs('llm:chat', { id: 'a', messages: [{ role: 'tool', content: 'x' }] })).toThrow();
   });
 
+  it('defaults Deep scan off for settings saved before it existed', () => {
+    const { deepScan: _deep, ...legacy } = DEFAULT_SETTINGS;
+    // getSettings() merges DEFAULT_SETTINGS first, so an old settings.json loads with Deep scan off.
+    expect(Settings.parse({ ...DEFAULT_SETTINGS, ...legacy }).deepScan).toBe(false);
+    expect(DEFAULT_SETTINGS.deepScan).toBe(false);
+    expect(parseArgs('settings:set', { deepScan: true })).toEqual({ deepScan: true });
+    expect(() => parseArgs('settings:set', { deepScan: 'yes' })).toThrow();
+  });
+
+  it('accepts an opaque folder id on chat and never a path', () => {
+    const req = { id: 'r', messages: [{ role: 'user', content: 'x' }] };
+    const projectId = 'a824c0af-924c-4f15-b190-2136b2a4b344';
+    expect(parseArgs('llm:chat', { ...req, projectId })).toEqual({ ...req, projectId });
+    expect(parseArgs('llm:chat', req)).toEqual(req);
+    expect(() => parseArgs('llm:chat', { ...req, projectId: '/Users/me/repo' })).toThrow();
+  });
+
   it('rejects an unknown channel', () => {
     expect(() => parseArgs('nope' as never, {})).toThrow(/unknown channel/);
   });

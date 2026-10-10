@@ -4,12 +4,18 @@ export function CodeFolder({
   project,
   scan,
   busy,
+  deep,
+  deepReads,
   choose,
   rescan,
 }: {
   project: CodeProject | null;
   scan: ProjectScan | null;
   busy: boolean;
+  /** Deep scan on: the CLI reads the folder itself, so no excerpts are sent. */
+  deep: boolean;
+  /** Files the last deep run read, or null before one. */
+  deepReads?: number | null;
   choose(): void;
   rescan(): void;
 }) {
@@ -24,21 +30,29 @@ export function CodeFolder({
         </button>
       </div>
       <p className="muted">
-        Scans source locally. Generate sends selected excerpts to your chosen provider. Dependencies,
-        credentials and ignored files are skipped.
+        {deep
+          ? 'Deep scan: the CLI reads this folder itself (read-only) and sends what it reads to its provider.'
+          : 'Scans source locally. Generate sends selected excerpts to your chosen provider. Dependencies, credentials and ignored files are skipped.'}
       </p>
       {scan && (
         <>
           <div className="row code-folder-coverage">
-            <span>
-              {scan.filesRead} of {scan.filesFound} eligible files read; {scan.filesIncluded} in model
-              context.
-            </span>
+            {deep ? (
+              <span>
+                Deep scan: Claude Code explores the folder itself.
+                {deepReads != null && ` Last run: ${deepReads} file${deepReads === 1 ? '' : 's'} read.`}
+              </span>
+            ) : (
+              <span>
+                {scan.filesRead} of {scan.filesFound} eligible files read; {scan.filesIncluded} in model
+                context.
+              </span>
+            )}
             <button type="button" className="btn secondary" disabled={busy} onClick={rescan}>
               Rescan
             </button>
           </div>
-          {scan.limited && (
+          {scan.limited && !deep && (
             <p className="code-folder-limited">
               Partial evidence — the diagram may omit uninspected components.
             </p>

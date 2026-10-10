@@ -1,5 +1,8 @@
-import type { ChatMsg, Settings } from '../shared/ipc';
-import { CLI_MODELS, CliMissing, cliChat, findClaude } from './claudeCli';
+import { realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import nodePath from 'node:path';
+import { type ChatMsg, canDeepScan, type Settings } from '../shared/ipc';
+import { CLI_MODELS, CliMissing, cliChat, type Deep, findClaude } from './claudeCli';
 import { codexChat, codexModels } from './codexCli';
 
 export function installedHarnesses(): { provider: 'codex' | 'claude-code'; path: string }[] {
@@ -85,15 +88,58 @@ function body(s: Settings, req: { messages: ChatMsg[]; schema?: object }, withSc
   };
 }
 
+const DEEP_OFF = 'Deep scan is off or not supported by this provider.';
+
+/**
+ * True for a filesystem root, the home folder or any folder containing it: `--restricted` only confines reads
+ * to cwd, and home holds tokens the deny list doesn't name. Case-insensitive, as on APFS and NTFS.
+ */
+export function tooBroad(dir: string, home: string, p: typeof nodePath = nodePath): boolean {
+  if (p.dirname(dir) === dir) return true;
+  const rel = p.relative(dir.toLowerCase(), home.toLowerCase());
+  return !(rel === '..' || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel));
+}
+
+const real = (path: string) => {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+};
+
+/** Main's own Deep scan gate: the renderer alone cannot turn on tools. Returns the folder's realpath. */
+export function deepCwd(s: Settings, path: string): string {
+  if (s.deepScan && s.provider === 'codex' && !canDeepScan('codex'))
+    throw new Error("Deep scan isn't available for Codex yet. Use Claude Code, or turn Deep scan off.");
+  if (!s.deepScan || !canDeepScan(s.provider)) throw new Error(DEEP_OFF);
+  let dir: string;
+  try {
+    // .native also takes the on-disk letter case, which Claude's init reports as its cwd.
+    dir = realpathSync.native(path);
+    if (!statSync(dir).isDirectory()) throw new Error();
+  } catch {
+    throw new Error('Choose the code folder again before scanning.');
+  }
+  if (tooBroad(dir, real(homedir())))
+    throw new Error('Choose a project folder, not your home or a system root.');
+  return dir;
+}
+
 export async function chat(
   s: Settings,
   key: string | undefined,
   req: { messages: ChatMsg[]; schema?: object },
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  extra: { cwd?: string; onProgress?: (text: string) => void } = {},
 ): Promise<string> {
-  if (s.provider === 'claude-code') return cliChat(s, req, onChunk, signal);
-  if (s.provider === 'codex') return codexChat(s, req, onChunk, signal);
+  const deep: Deep | undefined = extra.cwd
+    ? { cwd: extra.cwd, onProgress: extra.onProgress ?? (() => {}) }
+    : undefined;
+  if (s.provider === 'claude-code') return cliChat(s, req, onChunk, signal, deep);
+  if (s.provider === 'codex') return codexChat(s, req, onChunk, signal, deep);
+  if (deep) throw new Error(DEEP_OFF);
   const idle = new AbortController();
   let timer = setTimeout(() => idle.abort(new Error('LLM stopped responding')), IDLE_MS);
   const bump = () => {
