@@ -187,7 +187,7 @@ export function Inspector() {
       <div className="section">
         <div className="row">
           <span className="grow">{count} selected</span>
-          <button type="button" className="btn" onClick={deleteSelection}>
+          <button type="button" className="btn" onClick={() => deleteSelection(tabId)}>
             <IconTrash />
             Delete
           </button>
@@ -215,7 +215,7 @@ export function Inspector() {
           className="btn icon"
           aria-label="Delete"
           title="Delete"
-          onClick={deleteSelection}
+          onClick={() => deleteSelection(tabId)}
         >
           <IconTrash />
         </button>
@@ -227,8 +227,9 @@ export function Inspector() {
             multiline
             value={getPrimaryText(entity)}
             onCommit={(v) => {
-              const s = useDoc.getState();
-              s.commit(setPrimaryText(s.doc, entity.id, v));
+              // Draft commits on unmount (a tab switch): write to this inspector's tab, never the new one.
+              const t = tabState(tabId);
+              if (t) docApi(tabId).commit(setPrimaryText(t.doc, entity.id, v));
             }}
           />
         </div>

@@ -309,11 +309,13 @@ export async function autoLayoutAll(): Promise<void> {
   else patchTab(store.id, { view: null });
 }
 
-export function deleteSelection(): void {
-  const { doc, selection, commit, select } = useDoc.getState();
-  if (!selection.entities.length && !selection.connections.length) return;
-  commit(deleteElements(doc, selection.entities, selection.connections));
-  select({ entities: [], connections: [] });
+/** Synchronous, so the keyboard default (the tab on screen) is safe; the Inspector passes its own tab. */
+export function deleteSelection(id = useTabs.getState().activeId): void {
+  const t = tabState(id);
+  if (!t || (!t.selection.entities.length && !t.selection.connections.length)) return;
+  const ops = docApi(id);
+  ops.commit(deleteElements(t.doc, t.selection.entities, t.selection.connections));
+  ops.select({ entities: [], connections: [] });
 }
 
 export function duplicateSelection(): void {

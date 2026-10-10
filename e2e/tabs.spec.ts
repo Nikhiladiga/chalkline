@@ -591,3 +591,25 @@ test('the menu has New Tab, Close Tab and tab switching; closing the last tab ke
   await expect(tabs(page)).toHaveText(['Untitled']);
   expect(await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
 });
+
+test('uncommitted Text in the inspector commits to its own tab when the tab changes', async () => {
+  const page = await open();
+  await load(page, DOC);
+  await newTabButton(page).click();
+  await load(page, SOLO);
+  await tabs(page).nth(0).click();
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().select({ entities: ['web'], connections: [] }),
+  );
+  const text = page.getByTestId('inspector').locator('textarea').first();
+  await text.fill('Edge');
+  // Switch without the blur that switchTab does, so the field's unmount commit is what saves the text.
+  await page.evaluate(() => {
+    const s = (window as any).__dg.tabs;
+    s.setState({ activeId: s.getState().tabs[1].id });
+  });
+  await expect(activeTab(page)).toHaveText('Untitled 2');
+  const texts = (d: any) => d.entities.map((e: any) => e.texts?.[0]?.text);
+  expect(texts(await docIn(page, 0))).toEqual(['Edge', 'API']);
+  expect(texts(await docIn(page, 1))).toEqual(['Solo']);
+});
