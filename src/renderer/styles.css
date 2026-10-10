@@ -236,6 +236,7 @@ body {
   -webkit-app-region: no-drag;
 }
 .doc-tab {
+  position: relative;
   display: flex;
   align-items: center;
   flex: 0 1 240px;
@@ -256,6 +257,32 @@ body {
   background: var(--s2);
   color: var(--ink);
   box-shadow: inset 0 -2px 0 var(--line);
+}
+/* Chrome-like divider between adjacent inactive tabs; hidden beside the active or hovered tab. */
+.doc-tab:not([data-active]) + .doc-tab:not([data-active])::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  transform: translateY(-50%);
+  background: var(--hairline-3);
+  pointer-events: none;
+}
+.doc-tab:hover::before,
+.doc-tab:hover + .doc-tab::before {
+  visibility: hidden;
+}
+.doc-tab[data-drag="src"] {
+  opacity: 0.5;
+}
+.doc-tab[data-drag="over"] {
+  background: var(--s3);
+}
+/* The strip clips overflow, so draw the focus ring inside the tab. */
+.app .tab-main:focus-visible {
+  outline-offset: -2px;
 }
 .tab-main {
   display: flex;

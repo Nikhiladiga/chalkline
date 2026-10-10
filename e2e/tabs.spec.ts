@@ -762,3 +762,140 @@ test('declining the restore offer clears it for good; v1 files restore one tab; 
   await expect(page.locator('.cm-content')).toHaveText('{"entities": [');
   expect(ids(await docIn(page, 0))).toEqual(['solo']);
 });
+
+test('many tabs shrink to a minimum, then the strip scrolls and keeps the active tab in view', async () => {
+  const page = await open();
+  await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(900, 600));
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(900);
+  for (let i = 0; i < 11; i++) await newTabButton(page).click();
+  const widths = await page
+    .locator('.doc-tab')
+    .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+  expect(Math.min(...widths)).toBeGreaterThanOrEqual(95.5);
+  expect(await page.locator('.tabs').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  const inView = (i: number) =>
+    page
+      .locator('.doc-tab')
+      .nth(i)
+      .evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const s = el.parentElement!.getBoundingClientRect();
+        return r.left >= s.left - 0.5 && r.right <= s.right + 0.5;
+      });
+  expect(await inView(11)).toBe(true);
+  await page.keyboard.press(`${mod}+1`);
+  expect(await inView(0)).toBe(true);
+  await page.locator('.tabs').hover();
+  const before = await page.locator('.tabs').evaluate((el) => el.scrollLeft);
+  await page.mouse.wheel(0, 300);
+  await expect.poll(() => page.locator('.tabs').evaluate((el) => el.scrollLeft)).toBeGreaterThan(before);
+  const settings = (await page.getByRole('button', { name: 'Settings', exact: true }).boundingBox())!;
+  expect(settings.x + settings.width).toBeLessThanOrEqual(900);
+});
+
+test('dragging a tab onto another reorders the strip without switching tabs', async () => {
+  const page = await open();
+  await load(page, DOC, '/tmp/A.json');
+  for (const name of ['B', 'C']) {
+    await newTabButton(page).click();
+    await load(page, SOLO, `/tmp/${name}.json`);
+  }
+  await expect(tabs(page)).toHaveText(['A', 'B', 'C']);
+  const drag = async (from: number, to: number) => {
+    const dt = await page.evaluateHandle(() => new DataTransfer());
+    await tabs(page).nth(from).dispatchEvent('dragstart', { dataTransfer: dt });
+    await tabs(page).nth(to).dispatchEvent('dragover', { dataTransfer: dt });
+    await tabs(page).nth(to).dispatchEvent('drop', { dataTransfer: dt });
+  };
+  await drag(2, 0);
+  await expect(tabs(page)).toHaveText(['C', 'A', 'B']);
+  await drag(0, 2);
+  await expect(tabs(page)).toHaveText(['A', 'B', 'C']);
+  expect(
+    await page.evaluate(() => (window as any).__dg.tabs.getState().tabs.map((t: any) => t.filePath)),
+  ).toEqual(['/tmp/A.json', '/tmp/B.json', '/tmp/C.json']);
+  await expect(activeTab(page)).toHaveText('C');
+  await expect(page.getByRole('tabpanel', { name: 'C', exact: true })).toHaveCount(1); // display: contents wrapper stays in the a11y tree
+  // Middle-click still closes; it never starts a drag.
+  await tabs(page).nth(1).click({ button: 'middle' });
+  await expect(tabs(page)).toHaveText(['A', 'C']);
+});
+
+test('the tab list is keyboard operable: arrows, Home/End and Delete, with a roving tab stop', async () => {
+  const page = await open();
+  for (let i = 0; i < 2; i++) await newTabButton(page).click();
+  await activeTab(page).focus();
+  await expect(activeTab(page)).toHaveText('Untitled 3');
+  await page.keyboard.press('ArrowLeft');
+  await expect(activeTab(page)).toHaveText('Untitled 2');
+  await expect(activeTab(page)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(activeTab(page)).toHaveText('Untitled');
+  await page.keyboard.press('ArrowLeft'); // wraps
+  await expect(activeTab(page)).toHaveText('Untitled 3');
+  await page.keyboard.press('Delete');
+  await expect(tabs(page)).toHaveText(['Untitled', 'Untitled 2']);
+  await expect(activeTab(page)).toBeFocused();
+  expect(await tabs(page).evaluateAll((els) => els.map((e) => e.getAttribute('tabindex')))).toEqual([
+    '-1',
+    '0',
+  ]);
+  await expect(page.locator('#doc-panel')).toHaveAttribute(
+    'aria-labelledby',
+    (await activeTab(page).getAttribute('id'))!,
+  );
+  await page.keyboard.press('End');
+  await expect(activeTab(page)).toHaveText('Untitled 2');
+});
+
+test('dividers sit only between adjacent inactive tabs', async () => {
+  const page = await open();
+  for (let i = 0; i < 3; i++) await newTabButton(page).click(); // active is the last of 4
+  const shown = () =>
+    page
+      .locator('.doc-tab')
+      .evaluateAll((els) => els.map((e) => getComputedStyle(e, '::before').content !== 'none'));
+  expect(await shown()).toEqual([false, true, true, false]);
+  await page.locator('.doc-tab').nth(1).hover();
+  const vis = await page
+    .locator('.doc-tab')
+    .evaluateAll((els) => els.map((e) => getComputedStyle(e, '::before').visibility));
+  expect(vis[1]).toBe('hidden');
+  expect(vis[2]).toBe('hidden');
+});
+
+test('capture tab strip screenshots', async () => {
+  const out = process.env.DG_SCREENS_DIR;
+  test.skip(!out, 'set DG_SCREENS_DIR to write screenshots');
+  const page = await open();
+  const shot = async (name: string) => {
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: join(out!, `${name}.png`), scale: 'css' });
+  };
+  const size = (w: number, h: number) =>
+    app!.evaluate(
+      ({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]!.setContentSize(w!, h!),
+      [w, h],
+    );
+  await size(1440, 900);
+  await load(page, DOC, '/tmp/Payments Flow.json');
+  await newTabButton(page).click();
+  await load(page, SOLO, `/tmp/${'quarterly-architecture-review-'.repeat(3)}.json`);
+  await page.evaluate(() => (window as any).__dg.doc.setState({ dirty: true }));
+  await newTabButton(page).click();
+  await newTabButton(page).click();
+  await tabs(page).first().click();
+  await page.locator('.doc-tab').nth(3).hover();
+  await shot('tabs-3-dark');
+  await page.getByTestId('theme-toggle').click();
+  await page.locator('.doc-tab').nth(3).hover();
+  await shot('tabs-3-light');
+  await page.getByTestId('theme-toggle').click();
+  await size(1100, 700);
+  for (let i = 0; i < 8; i++) await newTabButton(page).click();
+  await shot('tabs-12-overflow-dark');
+  const dt = await page.evaluateHandle(() => new DataTransfer());
+  await tabs(page).nth(10).dispatchEvent('dragstart', { dataTransfer: dt });
+  await tabs(page).nth(9).dispatchEvent('dragover', { dataTransfer: dt });
+  await shot('tabs-12-mid-drag-dark');
+});
