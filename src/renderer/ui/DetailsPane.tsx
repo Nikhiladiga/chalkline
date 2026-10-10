@@ -14,7 +14,8 @@ import { useUi } from './uiStore';
 export function DetailsPane() {
   const open = useUi((s) => s.showAi);
   const settingsOpen = useUi((s) => s.settingsOpen);
-  const ids = useTabs(useShallow((s) => s.tabs.map((t) => t.id)));
+  // A new session (a file loaded into the tab) remounts its panel: fresh prompt, source, folder, errors.
+  const ids = useTabs(useShallow((s) => s.tabs.map((t) => `${t.id}|${t.session}`)));
   const activeId = useTabs((s) => s.activeId);
   // One model list for every tab: load it on start and again whenever Settings closes.
   useEffect(() => {
@@ -32,9 +33,10 @@ export function DetailsPane() {
           <Inspector key={activeId} />
         </div>
         <div className="composer">
-          {ids.map((id) => (
-            <AiPanel key={id} tabId={id} visible={id === activeId} />
-          ))}
+          {ids.map((k) => {
+            const id = k.split('|')[0]!;
+            return <AiPanel key={k} tabId={id} visible={id === activeId} />;
+          })}
         </div>
       </div>
       {!open && <PaneToggle side="right" open={false} />}

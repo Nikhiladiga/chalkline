@@ -111,21 +111,21 @@ export function cycleTab(delta: number): void {
 
 /**
  * Ctrl+Tab / Ctrl+Shift+Tab, ⌘⇧] / ⌘⇧[ (macOS only: Ctrl+Shift+[ folds code in CodeMirror elsewhere),
- * mod+1–8 and mod+9 for the last tab. Returns whether the key was a tab switch.
+ * mod+1–8 and mod+9 for the last tab. Returns the switch for a tab key, else null (so a modal can swallow it).
  */
-export function switchTabKey(e: KeyboardEvent): boolean {
+export function tabKey(e: KeyboardEvent): (() => void) | null {
   const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  if (e.altKey) return false;
-  if (e.ctrlKey && !e.metaKey && e.key === 'Tab') cycleTab(e.shiftKey ? -1 : 1);
-  else if (isMac && e.metaKey && e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft'))
-    cycleTab(e.code === 'BracketRight' ? 1 : -1);
-  else if (mod && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+  if (e.altKey) return null;
+  if (e.ctrlKey && !e.metaKey && e.key === 'Tab') return () => cycleTab(e.shiftKey ? -1 : 1);
+  if (isMac && e.metaKey && e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft'))
+    return () => cycleTab(e.code === 'BracketRight' ? 1 : -1);
+  if (mod && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
     const { tabs } = useTabs.getState();
     const n = Number(e.code.slice(5));
     const target = n === 9 ? tabs.at(-1) : tabs[n - 1];
-    if (target) switchTab(target.id);
-  } else return false;
-  return true;
+    return () => target && switchTab(target.id);
+  }
+  return null;
 }
 
 const baseName = () =>

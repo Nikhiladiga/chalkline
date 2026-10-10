@@ -411,9 +411,12 @@ test('Open focuses a file that is already open, even through a symlink, and repl
       (dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
     }, path);
   const openFile = () => page.evaluate(() => (window as any).__dg.actions.openFile());
+  await shown(page, 'ai-prompt').fill('stale prompt'); // typed into the untouched Untitled, which Open reuses
   await pick(file);
   await openFile();
   await expect(tabs(page)).toHaveText(['Orders']); // the untouched Untitled was replaced
+  await expect(page.locator('.hit')).toHaveCount(2); // the opened diagram renders in the reused tab
+  await expect(shown(page, 'ai-prompt')).toHaveValue(''); // its AI inputs are fresh
   await newTabButton(page).click();
   await openFile();
   await expect(tabs(page)).toHaveText(['Orders', 'Untitled']);
@@ -502,7 +505,32 @@ test('keyboard switches tabs, also from a text field, but not while Settings is 
   await page.keyboard.press(`${mod}+Comma`);
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
   await page.keyboard.press('Control+Tab');
-  expect(await at()).toBe(1);
+  expect(await at()).toBe(1); // Settings is a modal: tab keys do nothing
+});
+
+test('the icon picker keeps the tab it was opened in, even if a menu action arrives', async () => {
+  const page = await open();
+  await load(page, {
+    entities: [{ tag: 'Icon', id: 'node', x: 100, y: 100, icon: 'server' }],
+    connections: [],
+  });
+  await newTabButton(page).click();
+  await tabs(page).nth(0).click();
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().select({ entities: ['node'], connections: [] }),
+  );
+  await page.getByTestId('inspector').getByRole('button', { name: 'server', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Choose an icon' });
+  await expect(modal).toBeVisible();
+  for (const id of ['next-tab', 'prev-tab', 'new-tab', 'close-tab', 'new'])
+    await app!.evaluate(({ Menu }, i) => Menu.getApplicationMenu()!.getMenuItemById(i)!.click(), id);
+  await page.keyboard.press('Control+Tab');
+  await expect(tabs(page)).toHaveCount(2);
+  await expect(activeTab(page)).toHaveText('Untitled');
+  await modal.getByRole('textbox').fill('lambda');
+  await modal.locator('.icon-cell').first().click();
+  expect((await docIn(page, 0)).entities[0].icon).not.toBe('server');
+  expect(await docIn(page, 1)).toEqual({ entities: [], connections: [] });
 });
 
 test('the menu has New Tab, Close Tab and tab switching; closing the last tab keeps the window', async () => {

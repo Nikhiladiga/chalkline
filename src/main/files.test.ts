@@ -1,14 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dialog } from 'electron';
-import { expect, it, vi } from 'vitest';
+import { afterAll, expect, it, vi } from 'vitest';
 import { openDialog, saveExport } from './files';
 import { chosenKey } from './savePaths';
 
 const dir = mkdtempSync(join(tmpdir(), 'dg-files-'));
 const userData = join(dir, 'ud');
 mkdirSync(userData);
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
 vi.mock('electron', () => ({
   app: { getPath: () => userData, addRecentDocument: vi.fn() },
   dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },

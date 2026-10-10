@@ -17,7 +17,7 @@ import {
   openFile,
   restoreRecovery,
   save,
-  switchTabKey,
+  tabKey,
 } from './ui/actions';
 import { Canvas } from './ui/Canvas';
 import { DetailsPane } from './ui/DetailsPane';
@@ -50,15 +50,23 @@ function useRenderLoop(): void {
   }, [doc, tick, theme]);
 }
 
+const modalOpen = () => useUi.getState().settingsOpen || !!useUi.getState().iconPick;
+
 function useShortcuts(): void {
   useEffect(() => {
     const typing = (t: EventTarget | null) =>
       t instanceof HTMLElement &&
       (t.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(t.tagName) || !!t.closest('.cm-editor'));
     const onKey = (e: KeyboardEvent) => {
-      if (useUi.getState().settingsOpen || useUi.getState().iconPick) return;
       // Tab switching works from text fields too, like a browser: none of these keys types anything.
-      if (switchTabKey(e)) return e.preventDefault();
+      // While a modal is open they do nothing, and are swallowed so they do not fall through.
+      const tab = tabKey(e);
+      if (tab) {
+        e.preventDefault();
+        if (!modalOpen()) tab();
+        return;
+      }
+      if (modalOpen()) return;
       if (typing(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
       const store = useDoc.getState();
@@ -92,6 +100,8 @@ function useShortcuts(): void {
 function useMenuAndFiles(): void {
   useEffect(() => {
     const off = window.api.on('menu', (action: string) => {
+      // Tab-changing actions wait for the modal: the icon picker writes into the tab on screen.
+      if (modalOpen() && /^(new|newTab|closeTab|nextTab|prevTab)$/.test(action)) return;
       if (action === 'new' || action === 'newTab') newTab();
       else if (action === 'closeTab') closeTab();
       else if (action === 'nextTab') cycleTab(1);
