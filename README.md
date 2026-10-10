@@ -168,9 +168,9 @@ The app uses Electron, React, TypeScript, Zustand, CodeMirror, ELK and the Erase
 | `pnpm release:mac` | Signed/notarized macOS release workflow, with release credentials configured. |
 | `pnpm brew:prepare` | Prepare a Homebrew cask from a release archive; see CONTRIBUTING.md for arguments. |
 
-Artifacts are written to `dist/`. A local ad hoc macOS build is not a notarized public release. Apple Silicon and Intel macOS and Windows x64 builds are published automatically and are early (beta, unsigned); please report issues. Linux is not published. Development is supported on macOS; the `dev`/`start` scripts use a POSIX `env` wrapper that Windows `cmd.exe` lacks.
+Artifacts are written to `dist/`. A local ad hoc macOS build is not a notarized public release. Apple Silicon and Intel macOS and Windows x64 builds are published by a manual release workflow and are early (beta, unsigned); please report issues. Linux is not published. Development is supported on macOS; the `dev`/`start` scripts use a POSIX `env` wrapper that Windows `cmd.exe` lacks.
 
-Every push to `main` that changes app files (not only `site/`, Markdown or LICENSE) builds and publishes a GitHub Release with the next patch tag, including macOS (arm64, x64) and Windows builds; see [Releases](https://github.com/Nikhiladiga/chalkline/releases). These builds are unsigned. For signing, notarization and Homebrew cask preparation, see [CONTRIBUTING.md](CONTRIBUTING.md#signed-macos-release).
+Releases are cut manually (Actions → Release → Run workflow), including macOS (arm64, x64) and Windows builds; see [Releases](https://github.com/Nikhiladiga/chalkline/releases). These builds are unsigned. For signing, notarization and Homebrew cask preparation, see [CONTRIBUTING.md](CONTRIBUTING.md#signed-macos-release).
 
 ## Contributing
 

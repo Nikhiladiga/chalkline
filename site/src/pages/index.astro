@@ -1,143 +1,491 @@
 ---
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const asset = (p: string) => `${base}/${p}`;
-const releases = 'https://github.com/Nikhiladiga/chalkline/releases/latest';
 const repo = 'https://github.com/Nikhiladiga/chalkline';
-const features = [
-  ['Describe it', 'Write what the system does and get a diagram. Refine it with follow-up instructions.'],
-  ['Point it at code', 'Choose a folder and get a runtime architecture overview with source references and scan coverage.'],
-  ['3,856 icons', 'Search AWS, Azure, Google Cloud and general service icons, then drag them onto the canvas.'],
-  ['Draw by hand', 'Connect icons through eight ports with live preview and snapping. Move, resize, group and caption.'],
-  ['Visual or JSON', 'Switch between the icon palette and a JSON editor with completion and validation.'],
-  ['You stay in control', 'AI edits keep positions, can be cancelled, and undo in one step. Unsaved work is recovered.'],
-  ['Export anywhere', 'PNG at 1x or 2x with transparency, SVG, HTML and measured JSON. Copy PNG to the clipboard.'],
-  ['Auto-layout, pan, zoom', 'Tidy a diagram in one click, frame it with Fit, and use light or dark themes.'],
+const releases = `${repo}/releases/latest`;
+
+// The hero diagram: the README demo prompt, drawn as two layouts (wide and narrow) from one node list.
+type Glyph = 'person' | 'gateway' | 'lambda' | 'database' | 'bucket';
+const nodes: { id: string; label: string; glyph: Glyph; tint?: string; d: number; wide: [number, number]; narrow: [number, number] }[] = [
+  { id: 'client', label: 'Client', glyph: 'person', d: 1.1, wide: [62, 200], narrow: [180, 52] },
+  { id: 'gw', label: 'API Gateway', glyph: 'gateway', tint: '#c9447a', d: 1.55, wide: [222, 200], narrow: [180, 182] },
+  { id: 'lambda', label: 'Lambda', glyph: 'lambda', tint: '#de7f26', d: 2.25, wide: [440, 200], narrow: [180, 338] },
+  { id: 'db', label: 'DynamoDB', glyph: 'database', tint: '#5562dc', d: 2.75, wide: [656, 112], narrow: [92, 494] },
+  { id: 's3', label: 'S3', glyph: 'bucket', tint: '#4b9147', d: 2.85, wide: [656, 292], narrow: [268, 494] },
 ];
-const works = ['Codex CLI', 'Claude Code CLI', 'LM Studio', 'OpenAI-compatible APIs'];
+const glyphs: Record<Glyph, string> = {
+  person: 'M12 11.5a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5ZM4.5 21c0-4.1 3.4-7 7.5-7s7.5 2.9 7.5 7',
+  gateway: 'M8.5 7 3.5 12l5 5M15.5 7l5 5-5 5M13.5 5.5l-3 13',
+  lambda: 'M6.5 4H10l7.5 16H20M11.8 10.6 6 20',
+  database: 'M19 6c0 1.4-3.1 2.5-7 2.5S5 7.4 5 6s3.1-2.5 7-2.5S19 4.6 19 6ZM5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5',
+  bucket: 'M20 6c0 1.4-3.6 2.5-8 2.5S4 7.4 4 6s3.6-2.5 8-2.5S20 4.6 20 6ZM4 6l2 13c.2 1 2.8 2 6 2s5.8-1 6-2l2-13',
+};
+const layouts = {
+  wide: {
+    viewBox: '0 0 760 400',
+    group: { x: 340, y: 36, w: 400, h: 336, label: [356, 52] },
+    edges: [
+      { d: 'M94 200H190', head: 'M181 194l9 6-9 6', t: 1.3 },
+      { d: 'M254 200H408', head: 'M399 194l9 6-9 6', t: 1.75 },
+      { d: 'M472 200H530q10 0 10-10v-68q0-10 10-10H624', head: 'M615 106l9 6-9 6', t: 2.45 },
+      { d: 'M472 200H530q10 0 10 10v72q0 10 10 10H624', head: 'M615 286l9 6-9 6', t: 2.5 },
+    ],
+  },
+  narrow: {
+    viewBox: '0 0 360 590',
+    group: { x: 14, y: 262, w: 332, h: 312, label: [30, 278] },
+    edges: [
+      { d: 'M180 98V150', head: 'M174 141l6 9 6-9', t: 1.3 },
+      { d: 'M180 242V310', head: 'M174 301l6 9 6-9', t: 1.75 },
+      { d: 'M180 396V420q0 10-10 10H102q-10 0-10 10v24', head: 'M86 455l6 9 6-9', t: 2.45 },
+      { d: 'M180 396V420q0 10 10 10H258q10 0 10 10v24', head: 'M262 455l6 9 6-9', t: 2.5 },
+    ],
+  },
+} as const;
+
+const ways = {
+  folder: [
+    'Reads source, manifests and configuration without running anything.',
+    'Respects nested .gitignore files and skips dependencies, build output, binaries and credential files.',
+    'Shows what was scanned before you generate. Choosing or rescanning a folder never calls AI.',
+    'Rescan after code changes and apply the update. Existing positions stay put.',
+  ],
+  hand: [
+    'Connect elements through eight ports, with a live preview and snapping.',
+    'Move, resize, group and caption anything on the canvas.',
+    'Switch to JSON with completion and validation when typing is faster.',
+    'Tidy the whole diagram with auto-layout in one click.',
+  ],
+};
+const exportsList = [
+  ['PNG', '1× or 2×, with an optional transparent background, or copied to the clipboard'],
+  ['SVG', 'For docs and wikis that render HTML inside SVG'],
+  ['HTML', 'A standalone page with the diagram'],
+  ['JSON', 'Editable, with measured positions'],
+];
+const providers = [
+  ['Claude Code CLI', 'Your installed CLI and its existing login. No API key in Chalkline.'],
+  ['Codex CLI', 'Your installed CLI and its existing login. No API key in Chalkline.'],
+  ['OpenAI-compatible API', 'Any OpenAI-compatible server: a local one such as LM Studio or Ollama, or a hosted API. A base URL, plus an API key if the server needs one.'],
+  ['No AI', 'Draw with the icon palette and JSON editor. Nothing to configure.'],
+];
+const downloads = [
+  { os: 'mac', arch: 'arm', suffix: '-arm64.dmg', name: 'Mac with Apple silicon', note: 'M1 and later, macOS 13 or newer' },
+  { os: 'mac', arch: 'x86', suffix: '-x64.dmg', name: 'Mac with Intel processor', note: 'macOS 13 or newer' },
+  { os: 'win', arch: 'x86', suffix: '-x64.exe', name: 'Windows', note: '64-bit installer' },
+];
+const fontFace = `@font-face{font-family:"Shantell Sans";src:url("${asset('fonts/ShantellSans.var.woff2')}") format("woff2");font-weight:300 800;font-display:swap}`;
 ---
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Chalkline</title>
-  <meta name="description" content="Architecture diagrams from ideas, code and your own AI harness. A desktop app for macOS and Windows." />
-  <meta name="theme-color" content="#1b1c22" />
+  <title>Chalkline — architecture diagrams from a sentence, a code folder or your own hand</title>
+  <meta name="description" content="Chalkline is a free, open-source desktop app for architecture diagrams. Describe a system, point it at a code folder or draw by hand, then export PNG, SVG, HTML or JSON. macOS and Windows." />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f6f6f9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#18191f" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href={asset('icon.png')} />
+  <link rel="preload" href={asset('fonts/ShantellSans.var.woff2')} as="font" type="font/woff2" crossorigin />
   <meta property="og:title" content="Chalkline" />
-  <meta property="og:description" content="Architecture diagrams from ideas, code and your own AI harness." />
-  <meta property="og:image" content={new URL(asset('chalkline-demo.png'), Astro.site).href} />
-  <style>
+  <meta property="og:description" content="Architecture diagrams from ideas, code and your own AI harness. Free and open source for macOS and Windows." />
+  <meta property="og:image" content={new URL(asset('og.png'), Astro.site).href} />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style is:inline set:html={fontFace}></style>
+  <style is:global>
     :root {
-      --bg: #f6f6fa; --fg: #1b1c22; --muted: #52545f; --line: #d9daea;
-      --chalk: #4b57d6; --on-chalk: #fff; --panel: #ececf5;
+      --bg: #f6f6f9; --surface: #ffffff; --ink: #1b1c22; --muted: #555869; --line: #dcdde7; --line-strong: #b9bbcc;
+      --chalk: #4b57d6; --on-chalk: #ffffff; --chalk-soft: #e8e9fb;
+      --dot: rgba(27, 28, 34, .13); --ok: #1f8a4c;
+      --display: "Shantell Sans", ui-rounded, "Comic Sans MS", system-ui, sans-serif;
+      --text: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --gutter: clamp(1rem, 4vw, 2rem);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #1b1c22; --fg: #eeeef5; --muted: #a6a8b6; --line: #33354a;
-        --chalk: #7581ee; --on-chalk: #14151a; --panel: #23242d;
+        --bg: #18191f; --surface: #202128; --ink: #ecedf4; --muted: #a3a6b6; --line: #2e303c; --line-strong: #44475a;
+        --chalk: #7581ee; --on-chalk: #111218; --chalk-soft: #262842;
+        --dot: rgba(236, 237, 244, .085); --ok: #3fbf74;
       }
     }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
     body {
-      margin: 0; background: var(--bg); color: var(--fg);
-      font: 1.0625rem/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      -webkit-font-smoothing: antialiased;
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 1.0625rem/1.6 var(--text); -webkit-font-smoothing: antialiased;
     }
-    a { color: var(--chalk); text-underline-offset: 3px; }
-    :focus-visible { outline: 3px solid var(--chalk); outline-offset: 3px; border-radius: 4px; }
-    .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.25rem; }
-    .hero { padding: 4rem 0 0; }
-    .mark { width: 72px; height: 72px; border-radius: 16px; display: block; }
-    h1 {
-      font-size: clamp(2.8rem, 9vw, 6rem); line-height: 1; letter-spacing: -.04em;
-      margin: 1.5rem 0 1rem; font-weight: 800;
-    }
-    .lede { font-size: clamp(1.15rem, 2.4vw, 1.5rem); color: var(--muted); max-width: 32rem; margin: 0 0 2rem; line-height: 1.45; }
-    .cta { display: flex; flex-wrap: wrap; gap: .75rem; }
-    .btn {
-      display: inline-block; padding: .8rem 1.4rem; border-radius: 10px; font-weight: 650;
-      text-decoration: none; border: 2px solid var(--chalk);
-    }
-    .btn.primary { background: var(--chalk); color: var(--on-chalk); }
-    .btn.ghost { color: var(--fg); border-color: var(--line); }
+    img, svg { display: block; max-width: 100%; }
+    a { color: var(--chalk); text-underline-offset: .2em; }
+    :focus-visible { outline: 3px solid var(--chalk); outline-offset: 3px; border-radius: 6px; }
+    .wrap { width: 100%; max-width: 76rem; margin: 0 auto; padding: 0 var(--gutter); }
+    h1, h2, h3 { font-family: var(--display); font-weight: 650; letter-spacing: -.015em; text-wrap: balance; margin: 0; }
+    h2 { font-size: clamp(1.9rem, 3.8vw, 2.9rem); line-height: 1.08; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+
+    /* nav */
+    .nav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1.25rem; }
+    .brand { display: flex; align-items: center; gap: .6rem; color: var(--ink); text-decoration: none; font: 650 1.3rem/1 var(--display); }
+    .brand img { width: 34px; height: 34px; }
+    .nav ul { display: flex; gap: .25rem; list-style: none; margin: 0; padding: 0; }
+    .nav ul a { display: block; padding: .5rem .8rem; border-radius: 8px; color: var(--ink); text-decoration: none; font-weight: 550; font-size: .97rem; }
+    .nav ul a:hover { background: var(--chalk-soft); }
+
+    /* buttons */
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 3rem; padding: .7rem 1.35rem; border-radius: 12px; font-weight: 650; text-decoration: none; border: 1.5px solid var(--line-strong); color: var(--ink); background: transparent; }
     .btn:hover { border-color: var(--chalk); }
-    .meta { color: var(--muted); font-size: .95rem; margin: 1rem 0 0; }
-    /* the chalk line: drawn once, runs from the hero into the screenshot */
-    .chalk { display: block; width: 100%; height: 56px; margin: 2rem 0 0; overflow: visible; }
-    .chalk path { stroke: var(--chalk); stroke-width: 3; fill: none; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; }
-    @media (prefers-reduced-motion: no-preference) {
-      .chalk path { stroke-dashoffset: 1; animation: draw 1.4s .2s ease-out forwards; }
-      @keyframes draw { to { stroke-dashoffset: 0; } }
+    .btn.primary { background: var(--chalk); border-color: var(--chalk); color: var(--on-chalk); }
+    .btn.primary:hover { filter: brightness(1.08); }
+
+    /* hero */
+    .hero { padding-top: clamp(1.5rem, 4.5vw, 3.5rem); }
+    .hero-top { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 2rem 4rem; align-items: end; }
+    h1 { font-size: clamp(2.5rem, 5.1vw, 4.35rem); line-height: 1.02; letter-spacing: -.02em; font-weight: 650; max-width: 14ch; }
+    .lede { font-size: clamp(1.1rem, 1.6vw, 1.25rem); line-height: 1.5; color: var(--muted); max-width: 30rem; }
+    .lede strong { color: var(--ink); font-weight: 600; }
+    .cta { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.5rem; }
+    .fine { margin-top: 1rem; font-size: .93rem; color: var(--muted); }
+
+    /* the canvas board: prompt, chalk link, diagram */
+    .board {
+      position: relative; margin: clamp(2.5rem, 5vw, 4rem) 0 0; border: 1px solid var(--line); border-radius: 22px;
+      background: radial-gradient(circle, var(--dot) 1.1px, transparent 1.4px) 0 0 / 22px 22px, var(--surface);
+      padding: clamp(1.25rem, 3vw, 2.5rem) clamp(1rem, 3vw, 2.5rem) 3.5rem;
+      display: grid; grid-template-columns: minmax(15rem, 21rem) 5.5rem minmax(0, 1fr); align-items: center;
     }
-    .shot { margin: 0; }
-    .shot img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 24px 60px -30px rgba(20, 20, 40, .5); }
-    .shot figcaption { color: var(--muted); font-size: .95rem; margin-top: .75rem; }
-    section { padding: 5rem 0 0; }
-    h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); letter-spacing: -.025em; line-height: 1.1; margin: 0 0 1.75rem; max-width: 22ch; }
-    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 2rem 2.5rem; margin: 0; padding: 0; list-style: none; }
-    .features li { border-top: 2px solid var(--chalk); padding-top: .9rem; }
-    .features h3 { margin: 0 0 .35rem; font-size: 1.1rem; letter-spacing: -.01em; }
-    .features p { margin: 0; color: var(--muted); font-size: 1rem; }
-    .works { display: flex; flex-wrap: wrap; gap: .6rem; padding: 0; margin: 0 0 1rem; list-style: none; }
-    .works li { background: var(--panel); border-radius: 999px; padding: .35rem 1rem; font-weight: 600; }
-    .note { background: var(--panel); border-radius: 12px; padding: 1.5rem; max-width: 40rem; }
-    .note p { margin: 0 0 .75rem; }
-    .note ul { margin: 0; padding-left: 1.2rem; }
-    footer { margin-top: 5rem; padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .95rem; }
-    footer p { margin: 0 0 .4rem; }
+    .prompt { background: var(--bg); border: 1px solid var(--line); border-radius: 16px; padding: 1.1rem 1.15rem 1rem; box-shadow: 0 18px 40px -28px rgba(20, 22, 50, .45); }
+    .prompt-label { font-size: .85rem; color: var(--muted); margin-bottom: .45rem; }
+    .prompt-text { font-size: 1rem; line-height: 1.55; }
+    .prompt-foot { display: flex; justify-content: flex-end; margin-top: .9rem; }
+    .fake-btn { display: inline-block; padding: .35rem .9rem; border-radius: 9px; background: var(--chalk); color: var(--on-chalk); font-weight: 650; font-size: .9rem; }
+    .link svg { width: 100%; height: 48px; overflow: visible; }
+    .chalk-stroke { fill: none; stroke: var(--chalk); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; filter: url(#chalk); }
+    .diagram { width: 100%; height: auto; overflow: visible; }
+    .diagram.narrow { display: none; }
+    .diagram text { font-family: var(--display); font-size: 16px; font-weight: 540; fill: var(--ink); text-anchor: middle; }
+    .diagram .group-rect { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+    .diagram .group-tag rect { fill: var(--surface); stroke: var(--line-strong); }
+    .diagram .group-tag text { font-size: 13px; text-anchor: start; }
+    .diagram .glyph { fill: none; stroke: #fff; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+    .diagram .glyph.bare { stroke: var(--ink); }
+    .status { position: absolute; left: clamp(1rem, 3vw, 2.5rem); bottom: 1.1rem; display: flex; gap: 1.25rem; font-size: .85rem; color: var(--muted); }
+    .status .ok::before { content: ""; display: inline-block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok); margin-right: .45rem; vertical-align: .05em; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s var(--d, 0s) cubic-bezier(.55, 0, .25, 1) forwards; }
+      .pop { opacity: 0; transform-box: fill-box; transform-origin: center; animation: pop .45s var(--d, 0s) cubic-bezier(.2, .9, .3, 1.2) forwards; }
+      .fade { opacity: 0; animation: fade .35s var(--d, 0s) ease-out forwards; }
+      .fake-btn { animation: press .5s .45s ease-in-out; }
+      @keyframes draw { to { stroke-dashoffset: 0; } }
+      @keyframes pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+      @keyframes fade { to { opacity: 1; } }
+      @keyframes press { 50% { transform: scale(.94); filter: brightness(1.15); } }
+    }
+
+    /* sections */
+    section { padding-top: clamp(5rem, 10vw, 8.5rem); }
+    .way { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 2.5rem 4.5rem; align-items: center; }
+    .way + .way { margin-top: clamp(4.5rem, 9vw, 7rem); }
+    .way.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+    .way.flip .way-text { order: 2; }
+    .way-text > p { margin-top: 1.1rem; color: var(--muted); max-width: 34rem; }
+    .ticks { list-style: none; margin: 1.6rem 0 0; padding: 0; display: grid; gap: .8rem; max-width: 34rem; }
+    .ticks li { position: relative; padding-left: 1.7rem; }
+    .ticks li::before { content: ""; position: absolute; left: 0; top: .78em; width: 1rem; height: 2.5px; border-radius: 2px; background: var(--chalk); transform: rotate(-8deg); }
+    code { font-size: .92em; background: var(--chalk-soft); padding: .08em .35em; border-radius: 5px; }
+    .frame { margin: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #111218; box-shadow: 0 30px 60px -40px rgba(20, 22, 50, .55); }
+    .frame img { width: 100%; height: auto; }
+
+    /* compare */
+    .refine-head { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 1.5rem 4.5rem; align-items: end; }
+    .refine-head p { color: var(--muted); max-width: 38rem; }
+    .compare { --split: 46%; position: relative; margin: 2.5rem 0 0; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; aspect-ratio: 1440 / 750; box-shadow: 0 40px 80px -50px rgba(20, 22, 50, .6); }
+    .compare img { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .compare .light { clip-path: inset(0 0 0 var(--split)); }
+    .seam { position: absolute; top: 0; bottom: 0; left: var(--split); width: 3px; margin-left: -1.5px; background: var(--chalk); pointer-events: none; }
+    .seam::after { content: ""; position: absolute; bottom: 1.5rem; left: 50%; width: 1.4rem; height: 3rem; margin-left: -.7rem; border-radius: 999px; background: var(--chalk); box-shadow: 0 0 0 4px rgba(255, 255, 255, .35), 0 6px 18px rgba(0, 0, 0, .35); }
+    .compare input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+    .compare:has(input:focus-visible) .seam::after { outline: 3px solid var(--ink); outline-offset: 3px; }
+    .compare-caption { margin-top: .9rem; font-size: .93rem; color: var(--muted); }
+    .exports { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.5rem 2rem; margin: 3rem 0 0; }
+    .exports div { border-top: 1.5px solid var(--line-strong); padding-top: .9rem; }
+    .exports dt { font: 650 1.6rem/1.1 var(--display); }
+    .exports dd { margin: .45rem 0 0; color: var(--muted); font-size: .97rem; }
+
+    /* providers */
+    .ai { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 2.5rem 4.5rem; }
+    .ai-intro p { margin-top: 1.1rem; color: var(--muted); }
+    .providers { margin: 0; border-top: 1px solid var(--line); }
+    .providers div { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: .25rem 2rem; padding: 1.05rem 0; border-bottom: 1px solid var(--line); }
+    .providers dt { font-weight: 650; }
+    .providers dd { margin: 0; color: var(--muted); }
+    .providers div:last-child dt { color: var(--chalk); }
+
+    /* download */
+    .download { margin-top: clamp(5rem, 10vw, 8.5rem); padding: clamp(2rem, 5vw, 4rem) clamp(1.25rem, 4vw, 4rem); border-radius: 26px; border: 1px solid var(--line);
+      background: radial-gradient(circle, var(--dot) 1.1px, transparent 1.4px) 0 0 / 22px 22px, var(--surface); }
+    .dl-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 2.5rem 4rem; margin-top: 2rem; }
+    .version { margin-top: .6rem; color: var(--muted); }
+    .dl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .75rem; }
+    .dl-list a { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .15rem 1rem; padding: 1rem 1.2rem; border: 1.5px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--ink); text-decoration: none; }
+    .dl-list a:hover { border-color: var(--chalk); }
+    .dl-name { font: 650 1.2rem/1.25 var(--display); }
+    .dl-meta { grid-column: 1; font-size: .9rem; color: var(--muted); overflow-wrap: anywhere; }
+    .dl-file:empty { display: none; }
+    .dl-go { grid-column: 2; grid-row: 1 / span 3; font-weight: 650; color: var(--chalk); }
+    .dl-list .match a { border-color: var(--chalk); box-shadow: inset 0 0 0 1px var(--chalk); }
+    .dl-list .match .dl-go { background: var(--chalk); color: var(--on-chalk); padding: .45rem .9rem; border-radius: 9px; }
+    .dl-all { margin-top: 1rem; font-size: .95rem; }
+    .unsigned h3 { font-size: 1.35rem; }
+    .unsigned p { margin-top: .6rem; color: var(--muted); }
+    .unsigned ol { margin: .9rem 0 0; padding-left: 1.2rem; display: grid; gap: .6rem; }
+    .unsigned strong { font-weight: 650; }
+
+    footer { margin-top: clamp(4rem, 8vw, 6rem); padding-block: 2rem 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .95rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem 2rem; }
+    footer ul { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; list-style: none; margin: 0; padding: 0; }
+    footer p + p { margin-top: .3rem; }
+
+    @media (max-width: 60rem) {
+      .hero-top, .way, .way.flip, .refine-head, .ai, .dl-grid { grid-template-columns: minmax(0, 1fr); }
+      .way.flip .way-text { order: 0; }
+      .board { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+      .prompt { max-width: 30rem; width: 100%; }
+      .link { width: 3rem; height: 3.5rem; }
+      .link svg { transform: rotate(90deg) translateX(.25rem); width: 3.5rem; height: 3rem; }
+      .exports { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 40rem) {
+      .diagram.wide { display: none; }
+      .diagram.narrow { display: block; max-width: 24rem; }
+      .providers div { grid-template-columns: minmax(0, 1fr); }
+      .nav ul a { padding: .5rem .6rem; }
+      .status { gap: .9rem; }
+      .dl-list a { grid-template-columns: minmax(0, 1fr); }
+      .dl-go { grid-column: 1; grid-row: auto; justify-self: start; margin-top: .6rem; }
+      .seam::after { width: 1rem; height: 2rem; margin-left: -.5rem; bottom: .6rem; }
+    }
+    @media (max-width: 26rem) { .nav .gh { display: none; } }
+    @media (max-width: 22rem) { .exports { grid-template-columns: minmax(0, 1fr); } }
   </style>
 </head>
 <body>
-  <main class="wrap">
-    <header class="hero">
-      <img class="mark" src={asset('icon.png')} alt="Chalkline app icon" width="72" height="72" />
-      <h1>Chalkline</h1>
-      <p class="lede">Architecture diagrams from ideas, code and your own AI harness.</p>
-      <div class="cta">
-        <a class="btn primary" href={releases}>Download</a>
-        <a class="btn ghost" href={repo}>GitHub</a>
-      </div>
-      <p class="meta">Free and open source. macOS (Apple Silicon and Intel) and Windows.</p>
-      <svg class="chalk" viewBox="0 0 1000 56" preserveAspectRatio="none" aria-hidden="true">
-        <path pathLength="1" vector-effect="non-scaling-stroke" d="M0 40 C 180 34, 300 46, 520 38 S 860 30, 1000 36" />
-      </svg>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <filter id="chalk" x="-5%" y="-20%" width="110%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="4" result="grain" />
+      <feDisplacementMap in="SourceGraphic" in2="grain" scale="2" />
+    </filter>
+  </svg>
+
+  <div class="wrap">
+    <header class="nav">
+      <a class="brand" href={`${base}/`}><img src={asset('icon.png')} alt="" width="34" height="34" />Chalkline</a>
+      <nav aria-label="Main">
+        <ul>
+          <li><a href="#download">Download</a></li>
+          <li class="gh"><a href={repo}>GitHub</a></li>
+        </ul>
+      </nav>
     </header>
 
-    <figure class="shot">
-      <img src={asset('chalkline-demo.png')} width="2880" height="1800" alt="Chalkline desktop app with a searchable icon palette, an AWS serverless architecture diagram and the AI editing panel" />
-      <figcaption>An AWS serverless demo: the icon palette, canvas and AI panel share one workspace.</figcaption>
-    </figure>
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-top">
+          <h1 id="hero-title">Say what your system does. Get a diagram you can edit.</h1>
+          <div>
+            <p class="lede"><strong>Chalkline</strong> is a free desktop app for architecture diagrams. Describe a system, point it at a code folder or draw by hand, then export PNG, SVG, HTML or JSON.</p>
+            <div class="cta">
+              <a class="btn primary" id="hero-dl" href="#download">Download</a>
+              <a class="btn" href={repo}>Source on GitHub</a>
+            </div>
+            <p class="fine">MIT licensed. macOS (Apple silicon and Intel) and Windows.</p>
+          </div>
+        </div>
 
-    <section id="features">
-      <h2>From a sentence to a diagram you can edit</h2>
-      <ul class="features">
-        {features.map(([t, d]) => <li><h3>{t}</h3><p>{d}</p></li>)}
-      </ul>
-    </section>
+        <figure class="board" aria-label="The demo prompt from the Chalkline README and the diagram it describes: a client calls API Gateway, which invokes Lambda inside a VPC; Lambda writes to DynamoDB and S3.">
+          <div class="prompt" aria-hidden="true">
+            <p class="prompt-label">Description</p>
+            <p class="prompt-text">Create an AWS serverless API diagram. A User sends HTTPS requests to API Gateway, which invokes Lambda. Lambda reads and writes DynamoDB records and stores files in S3.</p>
+            <div class="prompt-foot"><span class="fake-btn">Generate</span></div>
+          </div>
+          <div class="link" aria-hidden="true">
+            <svg viewBox="0 0 88 48">
+              <path class="chalk-stroke draw" style="--d:.75s" pathLength="1" d="M6 26C24 12 44 38 74 24" />
+              <path class="chalk-stroke fade" style="--d:1.2s" d="M65 17l10 7-9 9" />
+            </svg>
+          </div>
+          {(['wide', 'narrow'] as const).map((k) => {
+            const L = layouts[k];
+            return (
+              <svg class={`diagram ${k}`} viewBox={L.viewBox} aria-hidden="true">
+                <rect class="group-rect draw" style="--d:1.95s" pathLength="1" x={L.group.x} y={L.group.y} width={L.group.w} height={L.group.h} rx="14" />
+                <g class="group-tag fade" style="--d:2.2s">
+                  <rect x={L.group.label[0]} y={L.group.label[1]} width="44" height="24" rx="6" />
+                  <text x={L.group.label[0] + 9} y={L.group.label[1] + 17}>VPC</text>
+                </g>
+                {L.edges.map((e) => (
+                  <g class="chalk-stroke">
+                    <path class="draw" style={`--d:${e.t}s`} pathLength="1" d={e.d} />
+                    <path class="fade" style={`--d:${e.t + 0.4}s`} d={e.head} />
+                  </g>
+                ))}
+                {nodes.map((n) => {
+                  const [x, y] = n[k];
+                  return (
+                    <g class="pop" style={`--d:${n.d}s`}>
+                      {n.tint ? (
+                        <>
+                          <rect x={x - 26} y={y - 26} width="52" height="52" rx="12" fill={n.tint} />
+                          <path class="glyph" transform={`translate(${x - 14} ${y - 14}) scale(1.1667)`} d={glyphs[n.glyph]} />
+                        </>
+                      ) : (
+                        <path class="glyph bare" transform={`translate(${x - 18} ${y - 22}) scale(1.5)`} d={glyphs[n.glyph]} />
+                      )}
+                      <text x={x} y={y + (n.tint ? 48 : 36)}>{n.label}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            );
+          })}
+          <p class="status fade" style="--d:3.2s" aria-hidden="true"><span class="ok">Valid</span><span>6 elements</span></p>
+        </figure>
+      </section>
 
-    <section id="works-with">
-      <h2>Works with the tools you already use</h2>
-      <ul class="works">{works.map((w) => <li>{w}</li>)}</ul>
-      <p class="meta">Use an installed CLI with its existing login, a local model, or an API. You can also draw without any AI.</p>
-    </section>
+      <section aria-labelledby="folder-title">
+        <div class="way">
+          <div class="way-text">
+            <h2 id="folder-title">Or point it at a code folder</h2>
+            <p>Choose a project and Chalkline maps how it runs: services, data stores and the calls between them, rather than an import graph. Add a focus such as <q>trace API requests and database writes</q> to narrow it down.</p>
+            <ul class="ticks">{ways.folder.map((t) => <li>{t}</li>)}</ul>
+          </div>
+          <figure class="frame">
+            <img src={asset('code-folder.webp')} width="760" height="428" loading="lazy" decoding="async" alt="The AI panel set to Code folder, with a Choose folder button, a note that dependencies, credentials and ignored files are skipped, and an optional focus field" />
+          </figure>
+        </div>
 
-    <section id="install">
-      <h2>Install</h2>
-      <div class="note">
-        <p>Builds are not code-signed yet, so your system will ask before opening them.</p>
-        <ul>
-          <li><strong>macOS:</strong> open the app once, then go to System Settings → Privacy &amp; Security and choose <strong>Open Anyway</strong>.</li>
-          <li><strong>Windows:</strong> in SmartScreen choose <strong>More info</strong> → <strong>Run anyway</strong>.</li>
-        </ul>
-      </div>
-    </section>
+        <div class="way flip">
+          <div class="way-text">
+            <h2>Or draw it yourself</h2>
+            <p>Search 3,856 icons across AWS, Azure, Google Cloud and general services, and drag them onto the canvas.</p>
+            <ul class="ticks">{ways.hand.map((t) => <li>{t}</li>)}</ul>
+          </div>
+          <figure class="frame">
+            <img src={asset('by-hand.webp')} width="1100" height="600" loading="lazy" decoding="async" alt="The searchable icon palette beside the canvas, showing the serverless diagram inside a VPC group" />
+          </figure>
+        </div>
+      </section>
+
+      <section aria-labelledby="refine-title">
+        <div class="refine-head">
+          <h2 id="refine-title">Refine it until it’s right</h2>
+          <p>Select anything to change its text, icon, size or color. Ask the AI for an edit and it keeps your layout in place; stop it at any time or undo it in one step. Unsaved work, including unfinished JSON, is recovered.</p>
+        </div>
+        <div class="compare" id="compare">
+          <img src={asset('app-dark.webp')} width="1440" height="750" loading="lazy" decoding="async" alt="Chalkline in the dark theme with Lambda selected and its details open" />
+          <img class="light" src={asset('app-light.webp')} width="1440" height="750" loading="lazy" decoding="async" alt="The same diagram in the light theme" />
+          <div class="seam"></div>
+          <input type="range" min="0" max="100" value="46" aria-label="Compare the dark and light themes" />
+        </div>
+        <p class="compare-caption">Dark and light themes, side by side. Drag the line to compare.</p>
+        <dl class="exports">
+          {exportsList.map(([f, d]) => <div><dt>{f}</dt><dd>{d}</dd></div>)}
+        </dl>
+      </section>
+
+      <section aria-labelledby="ai-title">
+        <div class="ai">
+          <div class="ai-intro">
+            <h2 id="ai-title">Bring the AI you already use, or none</h2>
+            <p>There’s no Chalkline account. Generation goes through a tool you already have, chosen in Settings.</p>
+            <p>Diagrams and manual edits stay on your computer. Only <strong>Generate</strong> and <strong>Apply</strong> send your prompt, the diagram and selected source excerpts to the provider you picked. API keys are stored encrypted and never reach the app’s interface, and CLI runs have filesystem tools, plugins and MCP turned off.</p>
+          </div>
+          <dl class="providers">
+            {providers.map(([n, d]) => <div><dt>{n}</dt><dd>{d}</dd></div>)}
+          </dl>
+        </div>
+      </section>
+
+      <section class="download" id="download" aria-labelledby="dl-title">
+        <h2 id="dl-title">Download Chalkline</h2>
+        <p class="version" id="dl-version">Free and open source. Builds come from the latest GitHub release.</p>
+        <div class="dl-grid">
+          <div>
+            <ul class="dl-list">
+              {downloads.map((d) => (
+                <li data-os={d.os} data-arch={d.arch} data-suffix={d.suffix}>
+                  <a href={releases}>
+                    <span class="dl-name">{d.name}</span>
+                    <span class="dl-meta">{d.note}</span>
+                    <span class="dl-meta dl-file"></span>
+                    <span class="dl-go">Download</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p class="dl-all"><a href={releases}>All files on the latest release page</a></p>
+          </div>
+          <div class="unsigned">
+            <h3>Builds aren’t code-signed yet</h3>
+            <p>Your system will ask before opening Chalkline the first time.</p>
+            <ol>
+              <li><strong>macOS:</strong> open the app once, then go to System Settings, Privacy &amp; Security and choose <strong>Open Anyway</strong>.</li>
+              <li><strong>Windows:</strong> when SmartScreen appears, choose <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+    </main>
 
     <footer>
-      <p>MIT licensed. Built on the open-source Eraser diagram engine.</p>
-      <p><a href={repo}>GitHub</a> · <a href={`${repo}/issues`}>Report an issue</a></p>
+      <div>
+        <p>MIT licensed. Built on the open-source Eraser diagram engine.</p>
+        <p>Service icons and logos belong to their respective owners.</p>
+      </div>
+      <ul>
+        <li><a href={repo}>Source</a></li>
+        <li><a href={`${repo}/releases`}>Releases</a></li>
+        <li><a href={`${repo}/issues`}>Report an issue</a></li>
+      </ul>
     </footer>
-  </main>
+  </div>
+
+  <script>
+    // Theme comparison slider.
+    const compare = document.getElementById('compare');
+    compare?.querySelector('input')?.addEventListener('input', (e) => {
+      compare.style.setProperty('--split', `${(e.target as HTMLInputElement).value}%`);
+    });
+
+    // Download: suggest the visitor's platform and link straight to the latest release files.
+    const rows = [...document.querySelectorAll<HTMLLIElement>('.dl-list li')];
+    const uaData = (navigator as Navigator & { userAgentData?: { platform?: string; getHighEntropyValues?: (h: string[]) => Promise<{ architecture?: string }> } }).userAgentData;
+    const platform = (uaData?.platform || navigator.platform || navigator.userAgent).toLowerCase();
+    const os = platform.includes('mac') ? 'mac' : platform.includes('win') ? 'win' : '';
+    const mark = (arch?: string) => {
+      for (const r of rows) r.classList.toggle('match', r.dataset.os === os && (!arch || os !== 'mac' || r.dataset.arch === arch));
+    };
+    if (os) {
+      mark();
+      const hero = document.getElementById('hero-dl');
+      if (hero) hero.textContent = os === 'mac' ? 'Download for macOS' : 'Download for Windows';
+      uaData?.getHighEntropyValues?.(['architecture']).then((v) => v.architecture && mark(v.architecture)).catch(() => {});
+    }
+    fetch('https://api.github.com/repos/Nikhiladiga/chalkline/releases/latest')
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((rel: { tag_name: string; assets: { name: string; size: number; browser_download_url: string }[] }) => {
+        const version = document.getElementById('dl-version');
+        if (version) version.textContent = `Version ${rel.tag_name.replace(/^v/, '')}. Free and open source.`;
+        for (const r of rows) {
+          const file = rel.assets.find((a) => a.name.startsWith('chalkline-') && a.name.endsWith(r.dataset.suffix ?? '\0'));
+          if (!file) continue;
+          r.querySelector('a')?.setAttribute('href', file.browser_download_url);
+          const meta = r.querySelector('.dl-file');
+          if (meta) meta.textContent = `${file.name}, ${Math.round(file.size / 1e6)} MB`;
+        }
+      })
+      .catch(() => {}); // Rows keep the version-agnostic release link.
+  </script>
 </body>
 </html>

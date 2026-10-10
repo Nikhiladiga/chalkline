@@ -1,14 +1,17 @@
 name: Release
+# Manual only: Actions -> Release -> Run workflow.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'site/**'
-      - '.github/workflows/site.yml'
-      - '.github/workflows/ci.yml'
-      - '**.md'
-      - 'LICENSE'
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      draft:
+        description: Create the release as a draft
+        type: boolean
+        default: false
 permissions:
   contents: read
 # One release at a time so tags never race; never cancel a running release.
@@ -21,10 +24,19 @@ jobs:
     outputs:
       tag: ${{ steps.v.outputs.tag }}
     steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run Release from main, not $GITHUB_REF"
+          exit 1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - run: |
+          [[ "$(git ls-remote origin refs/heads/main | cut -f1)" == "$GITHUB_SHA" ]] || { echo "::error::main moved since this run started; start a new run"; exit 1; }
       - id: v
+        env:
+          BUMP: ${{ inputs.bump }}
         run: echo "tag=$(bash .github/scripts/next-version.sh)" >> "$GITHUB_OUTPUT"
   build:
     needs: version
@@ -62,20 +74,47 @@ jobs:
           name: dist-${{ matrix.os }}
           path: ${{ matrix.files }}
           if-no-files-found: error
+  # Runs only after every build succeeded: a failed build leaves no commit, tag or release.
   release:
     needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Ensure main has not moved during the build
+        run: |
+          if [[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "main moved during the build ($GITHUB_SHA -> $(git rev-parse HEAD)); nothing released. Start a new run (Actions → Release → Run workflow); GitHub's Re-run reuses the old commit and will fail." >&2
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Bump package.json, commit and push
+        id: commit
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          npm pkg set version="${TAG#v}"
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -am "chore:release $TAG"
+            git push origin HEAD:main  # rejected (non-fast-forward) if main moved: fails before tag/release
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          DRAFT: ${{ inputs.draft }}
         run: |
+          flags=()
+          [[ "$DRAFT" == "true" ]] && flags+=(--draft)
           gh release create "$TAG" dist/* \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Chalkline $TAG" --generate-notes
+            --repo "$GITHUB_REPOSITORY" --target "$SHA" \
+            --title "Chalkline $TAG" --generate-notes "${flags[@]}"
