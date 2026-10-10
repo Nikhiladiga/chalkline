@@ -19,17 +19,25 @@ test('Deep scan shows only for a code folder on a CLI provider, warns harder for
   const panel = page.getByTestId('ai-panel');
   const toggle = page.getByRole('switch', { name: 'Deep scan', exact: true });
   const folder = () => page.getByLabel('Diagram source').selectOption('folder');
+  const blurb = page.getByTestId('code-folder');
+  const EXCERPTS = 'Generate sends selected excerpts to your chosen provider.';
+  const DEEP =
+    'Deep scan: the CLI reads this folder itself (read-only) and sends what it reads to its provider.';
   try {
     await expect(panel).toBeVisible();
     await expect(toggle).toHaveCount(0);
     await folder();
     await expect(toggle).not.toBeChecked();
-    await expect(toggle).toHaveAccessibleDescription(/Secret files like \.env and keys are blocked\./);
-    await expect(panel).toContainText("Uses your plan's quota and takes longer.");
+    await expect(blurb).toContainText(EXCERPTS);
+    await expect(toggle).toHaveAccessibleDescription(
+      "Lets Claude Code read this folder (read-only) and send what it reads to Anthropic. Secret files like .env and keys are blocked. Uses your plan's quota and takes longer.",
+    );
     // Keyboard operable.
     await toggle.focus();
     await page.keyboard.press('Space');
     await expect(toggle).toBeChecked();
+    await expect(blurb).toContainText(DEEP);
+    await expect(blurb).not.toContainText(EXCERPTS);
     await expect.poll(() => JSON.parse(readFileSync(join(ud, 'settings.json'), 'utf8')).deepScan).toBe(true);
     if (SHOTS) await panel.screenshot({ path: join(SHOTS, 'deep-scan-claude.png') });
     await page.reload();
@@ -40,14 +48,17 @@ test('Deep scan shows only for a code folder on a CLI provider, warns harder for
     await page.reload();
     await folder();
     await expect(toggle).toBeChecked();
-    await expect(toggle).toHaveAccessibleDescription(/Codex can't block secret files like \.env/);
+    await expect(toggle).toHaveAccessibleDescription(
+      "Lets Codex read this folder (read-only) and send what it reads to OpenAI. Codex can't block secret files like .env and may read files outside this folder — only use it on folders without secrets. Uses your plan's quota and takes longer.",
+    );
+    await expect(blurb).toContainText(DEEP);
     if (SHOTS) await panel.screenshot({ path: join(SHOTS, 'deep-scan-codex.png') });
 
     // An OpenAI-compatible API preset: no CLI, so no deep scan.
     save({ provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'm', deepScan: true });
     await page.reload();
     await folder();
-    await expect(page.getByTestId('code-folder')).toBeVisible();
+    await expect(blurb).toContainText(EXCERPTS);
     await expect(toggle).toHaveCount(0);
   } finally {
     await app.close();

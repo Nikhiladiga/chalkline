@@ -19,6 +19,7 @@ export function DeepScanToggle({
       <label className="check">
         <input
           type="checkbox"
+          className="switch"
           role="switch"
           aria-checked={checked}
           aria-describedby={desc}
@@ -30,13 +31,14 @@ export function DeepScanToggle({
       </label>
       {provider === 'codex' ? (
         <p id={desc} className="note bad">
-          Lets Codex read this folder (read-only). Codex can't block secret files like .env — only use on
-          folders without secrets. Uses your plan's quota and takes longer.
+          Lets Codex read this folder (read-only) and send what it reads to OpenAI. Codex can't block secret
+          files like .env and may read files outside this folder — only use it on folders without secrets.
+          Uses your plan's quota and takes longer.
         </p>
       ) : (
-        <p id={desc} className="muted">
-          Lets Claude Code read this folder (read-only). Secret files like .env and keys are blocked. Uses
-          your plan's quota and takes longer.
+        <p id={desc} className="muted switch-desc">
+          Lets Claude Code read this folder (read-only) and send what it reads to Anthropic. Secret files like
+          .env and keys are blocked. Uses your plan's quota and takes longer.
         </p>
       )}
     </>

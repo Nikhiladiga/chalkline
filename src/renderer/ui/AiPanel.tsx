@@ -293,6 +293,7 @@ export function AiPanel() {
           project={project}
           scan={scan}
           busy={Boolean(running)}
+          deep={Boolean(settings?.deepScan && isCliProvider(settings.provider))}
           choose={() => void previewProject(true)}
           rescan={() => void previewProject(false)}
         />

@@ -4,12 +4,15 @@ export function CodeFolder({
   project,
   scan,
   busy,
+  deep,
   choose,
   rescan,
 }: {
   project: CodeProject | null;
   scan: ProjectScan | null;
   busy: boolean;
+  /** Deep scan on: the CLI reads the folder itself, so no excerpts are sent. */
+  deep: boolean;
   choose(): void;
   rescan(): void;
 }) {
@@ -24,8 +27,9 @@ export function CodeFolder({
         </button>
       </div>
       <p className="muted">
-        Scans source locally. Generate sends selected excerpts to your chosen provider. Dependencies,
-        credentials and ignored files are skipped.
+        {deep
+          ? 'Deep scan: the CLI reads this folder itself (read-only) and sends what it reads to its provider.'
+          : 'Scans source locally. Generate sends selected excerpts to your chosen provider. Dependencies, credentials and ignored files are skipped.'}
       </p>
       {scan && (
         <>
