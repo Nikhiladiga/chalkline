@@ -72,6 +72,13 @@ describe('IPC payload validation', () => {
     expect(() => parseArgs('project:scan', { ...scan, maxChars: 9999999 })).toThrow();
   });
 
+  it('bounds clipboard writes and takes no clipboard read argument', () => {
+    expect(parseArgs('clipboard:write', '{"entities":[]}')).toBe('{"entities":[]}');
+    expect(() => parseArgs('clipboard:write', 'x'.repeat(10_000_001))).toThrow();
+    expect(() => parseArgs('clipboard:write', 42)).toThrow();
+    expect(() => parseArgs('clipboard:read', 'path')).toThrow();
+  });
+
   it('rejects an unknown export kind', () => {
     expect(() => parseArgs('export:save', { kind: 'exe', content: 'x', name: 'a' })).toThrow();
   });

@@ -8,6 +8,7 @@ import { checkLayout } from './layout/quality';
 import * as actions from './ui/actions';
 import {
   closeTab,
+  copySelection,
   cycleTab,
   deleteSelection,
   duplicateSelection,
@@ -17,6 +18,7 @@ import {
   nudge,
   offerRecovery,
   openFile,
+  pasteClipboard,
   save,
   tabKey,
 } from './ui/actions';
@@ -75,6 +77,9 @@ function useShortcuts(): void {
       const k = e.key.toLowerCase();
       if (mod && k === 'z') store[e.shiftKey ? 'redo' : 'undo']();
       else if (mod && k === 'y') store.redo();
+      else if (mod && (k === 'c' || k === 'x') && store.selection.entities.length)
+        void copySelection(k === 'x');
+      else if (mod && k === 'v') void pasteClipboard();
       else if (mod && k === 'd') duplicateSelection();
       else if (mod && k === 'a')
         store.select({ entities: store.doc.entities.map((x) => x.id), connections: [] });

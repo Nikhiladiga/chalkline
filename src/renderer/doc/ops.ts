@@ -144,28 +144,62 @@ export function addEntity(doc: Doc, e: Entity): Doc {
   return out;
 }
 
-export function duplicateEntities(doc: Doc, ids: string[], offset = 20): { doc: Doc; newIds: string[] } {
-  const out = clone(doc);
+/** The selection as a standalone diagram: the entities with their descendants and the connections
+ *  between them, without routes or connection ids (those belong to the source document). */
+export function copyElements(doc: Doc, ids: string[]): Doc {
   const set = withDescendants(doc, ids);
-  const map = new Map<string, string>();
-  for (const e of doc.entities) {
-    if (!set.has(e.id)) continue;
+  return {
+    entities: doc.entities.filter((e) => set.has(e.id)).map((e) => structuredClone(e)),
+    connections: doc.connections
+      .filter((c) => set.has(c.from) && set.has(c.to))
+      .map((c) => {
+        const copy = structuredClone(c);
+        for (const k of [...ROUTE_KEYS, 'id'] as const) delete copy[k];
+        return copy;
+      }),
+  };
+}
+
+/**
+ * Add a copied diagram with fresh ids, shifted by (dx, dy). A copied root keeps its container only when
+ * `keepContainers` is set and that container exists in `doc`; connections whose ends were not copied are
+ * dropped. Returns the new roots and the old -> new id map.
+ */
+export function pasteElements(
+  doc: Doc,
+  clip: Doc,
+  dx: number,
+  dy: number,
+  keepContainers: boolean,
+): { doc: Doc; newIds: string[]; idMap: Map<string, string> } {
+  const out = clone(doc);
+  const idMap = new Map<string, string>();
+  for (const e of clip.entities) {
     const id = uniqueId(out, e.id);
-    map.set(e.id, id);
-    out.entities.push({ ...structuredClone(e), id, x: e.x + offset, y: e.y + offset });
+    idMap.set(e.id, id);
+    out.entities.push({ ...structuredClone(e), id, x: Math.round(e.x + dx), y: Math.round(e.y + dy) });
   }
-  for (const e of out.entities) {
-    if (map.has(e.containerId ?? '') && [...map.values()].includes(e.id))
-      e.containerId = map.get(e.containerId!);
-  }
-  for (const c of doc.connections) {
-    if (map.has(c.from) && map.has(c.to)) {
-      const copy = structuredClone(c);
-      for (const k of [...ROUTE_KEYS, 'id'] as const) delete copy[k];
-      out.connections.push({ ...copy, from: map.get(c.from)!, to: map.get(c.to)! });
+  const here = new Set(doc.entities.map((e) => e.id));
+  const newIds: string[] = [];
+  for (const e of out.entities.slice(doc.entities.length)) {
+    const parent = e.containerId ?? undefined;
+    if (parent && idMap.has(parent)) {
+      e.containerId = idMap.get(parent);
+      continue;
     }
+    newIds.push(e.id);
+    if (!(keepContainers && parent && here.has(parent))) delete e.containerId;
   }
-  return { doc: out, newIds: ids.map((id) => map.get(id)!).filter(Boolean) };
+  for (const c of clip.connections) {
+    const from = idMap.get(c.from);
+    const to = idMap.get(c.to);
+    if (from && to) out.connections.push({ ...structuredClone(c), from, to });
+  }
+  return { doc: out, newIds, idMap };
+}
+
+export function duplicateEntities(doc: Doc, ids: string[], offset = 20): { doc: Doc; newIds: string[] } {
+  return pasteElements(doc, copyElements(doc, ids), offset, offset, true);
 }
 
 export function connect(doc: Doc, from: string, to: string, ports?: { fromPort: Port; toPort: Port }): Doc {

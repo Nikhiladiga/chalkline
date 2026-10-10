@@ -7,6 +7,7 @@ import { useUi } from './uiStore';
 const SHORTCUTS: [string, string][] = [
   ['Undo', `${mod}Z`],
   ['Redo', `${mod}⇧Z`],
+  ['Copy / cut / paste', `${mod}C / ${mod}X / ${mod}V`],
   ['Duplicate selection', `${mod}D`],
   ['Select all', `${mod}A`],
   ['Delete selection', '⌫'],

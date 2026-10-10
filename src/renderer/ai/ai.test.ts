@@ -7,7 +7,7 @@ import names from '../../../icons/names.json';
 import type { Box, Doc } from '../engine/types';
 import { fixIcons } from './iconFix';
 import { fitContainers, mergePositions, placeNew } from './merge';
-import { docFromJson, extractJson, toSplit } from './parse';
+import { docFromJson, extractJson, fragmentFromText, toSplit } from './parse';
 import { type AiDeps, runAi } from './pipeline';
 import { buildMessages, FEW_SHOT, iconSubset, systemPrompt } from './prompt';
 import { stripForModel } from './strip';
@@ -164,6 +164,22 @@ describe('fixIcons caption pass', () => {
     const mine = icon('bell', 'Sentry', 'alerts');
     expect(pick(mine, mine)).toBe('bell');
     expect(pick(icon('bell', 'Sentry', 'alerts'), icon('server', 'Sentry', 'alerts'))).toBe('sentry');
+  });
+});
+
+describe('fragmentFromText', () => {
+  it('accepts a diagram fragment and rejects anything else', () => {
+    const frag = { entities: [{ tag: 'Icon', id: 'a', x: 1, y: 2 }], connections: [{ from: 'a', to: 'a' }] };
+    expect(fragmentFromText(JSON.stringify(frag))).toEqual(frag);
+    for (const text of [
+      'hello',
+      '[]',
+      '{}',
+      '{"entities":[]}',
+      '{"entities":[{"id":"a","x":0,"y":0}]}',
+      'null',
+    ])
+      expect(fragmentFromText(text)).toBeNull();
   });
 });
 

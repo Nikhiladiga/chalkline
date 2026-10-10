@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron';
 import { type Channel, parseArgs } from '../shared/ipc';
 import { exportPng } from './export';
 import * as files from './files';
@@ -169,6 +169,8 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
     'app:dirty': (flag) => {
       dirty = flag;
     },
+    'clipboard:write': (text) => clipboard.writeText(text),
+    'clipboard:read': () => clipboard.readText(),
   };
 
 for (const [channel, handler] of Object.entries(handlers)) {

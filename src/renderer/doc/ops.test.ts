@@ -4,6 +4,7 @@ import {
   addEntity,
   clampDelta,
   connect,
+  copyElements,
   deleteElements,
   descendants,
   dragEntities,
@@ -11,6 +12,7 @@ import {
   getPrimaryText,
   insertIcon,
   moveEntities,
+  pasteElements,
   reparent,
   selectionRoots,
   setPrimaryText,
@@ -323,5 +325,41 @@ describe('selectionRoots', () => {
   it('drops ids that sit inside another selected id', () => {
     expect(selectionRoots(doc(), ['vpc', 'api', 'db', 'web'])).toEqual(['vpc', 'web']);
     expect(selectionRoots(doc(), ['sub', 'api'])).toEqual(['sub', 'api']);
+  });
+});
+
+describe('copyElements / pasteElements', () => {
+  it('copies descendants and inner connections without routes or ids', () => {
+    const clip = copyElements(doc(), ['vpc']);
+    expect(clip.entities.map((e) => e.id)).toEqual(['vpc', 'api', 'sub', 'db']);
+    expect(clip.connections).toEqual([{ from: 'api', to: 'db' }]);
+    expect(copyElements(doc(), ['sub']).connections).toEqual([]);
+  });
+
+  it('pastes with fresh ids and an offset, remapping containers and connection ends', () => {
+    const { doc: out, newIds, idMap } = pasteElements(doc(), copyElements(doc(), ['vpc']), 20, 20, true);
+    expect(newIds).toEqual(['vpc-2']);
+    expect(idMap.get('db')).toBe('db-2');
+    expect(out.entities.find((e) => e.id === 'db-2')).toMatchObject({ containerId: 'sub-2', x: 240, y: 120 });
+    expect(out.connections.at(-1)).toEqual({ from: 'api-2', to: 'db-2' });
+  });
+
+  it('keeps a root in its container only when asked and the container exists', () => {
+    const clip = copyElements(doc(), ['api']);
+    expect(pasteElements(doc(), clip, 0, 0, true).doc.entities.at(-1)!.containerId).toBe('vpc');
+    expect(pasteElements(doc(), clip, 0, 0, false).doc.entities.at(-1)!.containerId).toBeUndefined();
+    const empty: Doc = { entities: [], connections: [] };
+    const into = pasteElements(empty, clip, 0, 0, true);
+    expect(into.doc.entities).toEqual(
+      [{ ...clip.entities[0], id: 'api' }].map(({ containerId: _, ...e }) => e),
+    );
+  });
+
+  it('drops pasted connections whose ends were not pasted', () => {
+    const clip: Doc = {
+      entities: [{ tag: 'Shape', id: 'x', x: 0, y: 0 }],
+      connections: [{ from: 'x', to: 'missing' }],
+    };
+    expect(pasteElements(doc(), clip, 0, 0, false).doc.connections).toHaveLength(2);
   });
 });

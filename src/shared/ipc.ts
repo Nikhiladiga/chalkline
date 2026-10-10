@@ -92,6 +92,9 @@ export const channels = {
   }),
   'export:save': z.object({ kind: z.enum(['svg', 'html', 'json']), content: z.string(), name: z.string() }),
   'app:dirty': z.boolean(),
+  /** Copied diagram elements, as JSON text, onto the system clipboard (main has no focus requirement). */
+  'clipboard:write': z.string().max(10_000_000),
+  'clipboard:read': z.undefined(),
 } as const;
 export type Channel = keyof typeof channels;
 export type Args<C extends Channel> = z.infer<(typeof channels)[C]>;
