@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron';
 import { type Channel, parseArgs } from '../shared/ipc';
 import { exportPng } from './export';
 import * as files from './files';
@@ -168,6 +168,11 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
     'export:save': (a, win) => files.saveExport(win, a.name, a.kind, a.content),
     'app:dirty': (flag) => {
       dirty = flag;
+    },
+    'clipboard:write': (text) => clipboard.writeText(text),
+    'clipboard:read': async () => {
+      const text = await clipboard.readText();
+      return text.length > 10_000_000 ? '' : text; // same bound as a write; a huge foreign clipboard is ignored
     },
   };
 

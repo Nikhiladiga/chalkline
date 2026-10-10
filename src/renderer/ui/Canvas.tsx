@@ -1,25 +1,31 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { fitContainers } from '../ai/merge';
 import {
   CONTAINER_TAGS,
   connect,
+  copyElements,
   dragEntities,
   getPrimaryText,
-  reparent,
+  pasteElements,
+  reconnect,
   resizeEntity,
+  selectionRoots,
+  setConnectionLabel,
   setPrimaryText,
+  settleMove,
   snap,
   withDescendants,
 } from '../doc/ops';
-import { useDoc } from '../doc/store';
-import { nearestPort, type Port, portPoint } from '../engine/ports';
+import { docApi, tabState, useDoc, useTabs } from '../doc/store';
+import { isPort, nearestPort, type Port, portPoint } from '../engine/ports';
 import { groundOf } from '../engine/theme';
 import { type Box, type Doc, SHEET_PAD } from '../engine/types';
 import { insertIconAt } from './actions';
 import { ConnectionPorts } from './ConnectionPorts';
+import { clearPreview, showPreview } from './dragPreview';
 import { ICON_MIME } from './iconCatalog';
 import { IconMinus, IconPlus } from './icons';
-import { easeView, requestFit, useUi } from './uiStore';
+import { isMac } from './platform';
+import { easeView, type RenderInfo, requestFit, toast, useUi } from './uiStore';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -29,16 +35,38 @@ type Gesture =
   | { kind: 'pan'; sx: number; sy: number; pan0: { x: number; y: number } }
   | {
       kind: 'move';
+      /** The tab the drag started in: the drop commits there. */
+      tabId: string;
       sx: number;
       sy: number;
+      /** Selection roots; their descendants move with them. */
       ids: string[];
+      /** The roots and all their descendants. */
+      moving: Set<string>;
       doc0: Doc;
-      boxes0: Record<string, Box>;
-      boxes: Record<string, Box>;
-      pan0: { x: number; y: number };
+      /** The render the drag started from: snapping and the preview read its boxes and routes. */
+      render0: RenderInfo;
+      /** Current offset in document px, snapped and rounded. */
+      dx: number;
+      dy: number;
+      /** Alt is held: the preview shows copies and the originals stay. */
+      copy: boolean;
       moved: boolean;
+      /** Shift-press on a selected element: deselect it on release unless the press became a drag. */
+      toggle?: string;
     }
-  | { kind: 'resize'; sx: number; sy: number; id: string; doc0: Doc; box0: Box }
+  | {
+      kind: 'resize';
+      tabId: string;
+      sx: number;
+      sy: number;
+      id: string;
+      doc0: Doc;
+      box0: Box;
+      /** The outline's size; the document changes only on release. */
+      width: number;
+      height: number;
+    }
   | {
       kind: 'link';
       from: string;
@@ -48,7 +76,31 @@ type Gesture =
       target: { id: string; port: Port } | null;
       keyboard: boolean;
     }
+  | {
+      kind: 'reconnect';
+      tabId: string;
+      /** The connection's index in the document. */
+      index: number;
+      /** The end being moved, and the element it was on. */
+      end: 'from' | 'to';
+      was: string;
+      /** The element at the end that stays, and that end's point. */
+      other: string;
+      anchor: { x: number; y: number };
+      x: number;
+      y: number;
+      /** `pinned`: the pointer is on one of the target's ports, so this end snaps to it. */
+      target: { id: string; port: Port; pinned: boolean } | null;
+      keyboard: boolean;
+    }
   | { kind: 'marquee'; x0: number; y0: number; x: number; y: number; base: string[] };
+type ReconnectGesture = Extract<Gesture, { kind: 'reconnect' }>;
+type MoveGesture = Extract<Gesture, { kind: 'move' }>;
+/**
+ * The connection label editor: bound to its tab and to the connection's ends when it opened. `start` is the
+ * field's opening text: an untouched field commits nothing, whatever the stored label holds.
+ */
+type LabelEdit = { tabId: string; index: number; from: string; to: string; value: string; start: string };
 
 /** Containment depth, for paint/hit order: containers under their members. */
 function depthOf(doc: Doc, id: string): number {
@@ -100,7 +152,24 @@ export function Canvas() {
   const space = useRef(false);
   const [, force] = useState(0);
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([]);
-  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  // tabId: the tab the editor opened on; the commit goes there, like the label editor's.
+  const [editing, setEditing] = useState<{ tabId: string; id: string; value: string } | null>(null);
+  const overlay = useRef<HTMLDivElement>(null);
+  const lines = useRef<SVGSVGElement>(null);
+  /** A committed drop whose render has not landed yet: its preview stays up until then. */
+  const settle = useRef<{
+    render: RenderInfo | null;
+    errors: unknown;
+    shift: { x: number; y: number } | null;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [sizing, setSizing] = useState<{ id: string; box: Box } | null>(null);
+  const [labelEdit, setLabelEdit] = useState<LabelEdit | null>(null);
+  // Commit reads the ref, so Escape (which clears it) can never be undone by the blur that follows.
+  const labelRef = useRef<LabelEdit | null>(null);
+  labelRef.current = labelEdit;
+  // F2/Enter (in a mount-time key listener) reach the latest openLabel through this ref.
+  const openLabelRef = useRef<(index: number) => void>(() => {});
 
   // The engine mounts a fresh #eraser-scene per render; adopt it.
   useLayoutEffect(() => {
@@ -108,6 +177,44 @@ export function Canvas() {
       sceneHost.current.replaceChildren(render.scene);
     }
   }, [render]);
+
+  const previewTarget = (g: MoveGesture) => {
+    const r = useUi.getState().render ?? g.render0;
+    return {
+      scene: r.scene,
+      overlay: overlay.current,
+      lines: lines.current,
+      doc: g.doc0,
+      connectionIds: r.connectionIds,
+      geometry: r.connections,
+      zoom: useUi.getState().zoom,
+    };
+  };
+  /** Compensate the document's origin shift on the CURRENT view, so a scroll or zoom meanwhile is kept. */
+  const applyShift = (d: { x: number; y: number } | null) => {
+    if (!d) return;
+    const { pan: p, zoom: z, set } = useUi.getState();
+    set({ pan: { x: p.x - d.x * z, y: p.y - d.y * z } });
+  };
+  const endPreview = () => {
+    clearPreview(useUi.getState().render?.scene ?? null, overlay.current, lines.current);
+    setDragging(false);
+  };
+
+  // A drop keeps its preview until its own render lands; otherwise the element would jump back for the
+  // length of that render. A render that lands mid-drag gets the preview redrawn on its new scene.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the helpers only read refs and stores.
+  useLayoutEffect(() => {
+    const s = settle.current;
+    if (s && (render !== s.render || errors !== s.errors)) {
+      settle.current = null;
+      applyShift(s.shift);
+      endPreview();
+    }
+    const g = gesture.current;
+    if (g?.kind === 'move' && g.moved && render)
+      showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: g.copy });
+  }, [render, errors]);
 
   const toDoc = useCallback((clientX: number, clientY: number) => {
     const rect = view.current!.getBoundingClientRect();
@@ -182,6 +289,27 @@ export function Canvas() {
         space.current = true;
         force((n) => n + 1);
       }
+      // F2 or Enter edits the one selected element's text or line's label (draw.io); several do nothing.
+      // Enter only from the board, so a focused button keeps it.
+      if ((e.key !== 'F2' && e.key !== 'Enter') || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      const onBoard =
+        t === document.body || (t instanceof HTMLElement && !!t.closest('.canvas') && !t.closest('button'));
+      const ui = useUi.getState();
+      if (typing(t) || ui.settingsOpen || ui.iconPick || gesture.current || (e.key === 'Enter' && !onBoard))
+        return;
+      const { doc: d, selection: sel } = useDoc.getState();
+      const one = sel.entities.length === 1 && !sel.connections.length;
+      const entity = one ? d.entities.find((x) => x.id === sel.entities[0]) : undefined;
+      if (entity) {
+        // No rendered box (its render is pending or failed): no editor could mount, so open none.
+        if (!ui.render?.boxes[entity.id]) return;
+        e.preventDefault();
+        setEditing({ tabId: useTabs.getState().activeId, id: entity.id, value: getPrimaryText(entity) });
+      } else if (sel.connections.length === 1 && !sel.entities.length) {
+        e.preventDefault();
+        openLabelRef.current(sel.connections[0]!);
+      }
     };
     const up = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
@@ -202,7 +330,50 @@ export function Canvas() {
     force((n) => n + 1);
   };
 
+  /** Drop one element from a tab's selection (a Shift-click on a selected element). */
+  const deselect = (tabId: string, id: string) =>
+    docApi(tabId).select({
+      entities: (tabState(tabId)?.selection.entities ?? []).filter((x) => x !== id),
+      connections: [],
+    });
+
+  /** Commit a move, or with Alt a copy, as one undo step; the preview stays until this drop's render lands. */
+  const drop = (g: MoveGesture, copy: boolean) => {
+    const t = tabState(g.tabId);
+    // Nothing moved, or the document changed under the drag (an AI result): keep the document as it is.
+    if (!t || t.doc !== g.doc0 || (!g.dx && !g.dy)) return endPreview();
+    let base = g.doc0;
+    let roots = g.ids;
+    const boxes0 = { ...g.render0.boxes };
+    if (copy) {
+      const pasted = pasteElements(g.doc0, copyElements(g.doc0, g.ids), 0, 0, true);
+      base = pasted.doc;
+      roots = pasted.newIds;
+      for (const [from, to] of pasted.idMap) if (boxes0[from]) boxes0[to] = boxes0[from]!;
+    }
+    const moving = withDescendants(base, roots);
+    const { doc: moved, offset } = dragEntities(base, roots, g.dx, g.dy);
+    const boxes = Object.fromEntries(
+      Object.entries(boxes0).map(([id, b]) => {
+        const k = moving.has(id) ? 1 : 0;
+        return [id, { ...b, x: b.x + offset.x + k * g.dx, y: b.y + offset.y + k * g.dy }];
+      }),
+    );
+    const ui = useUi.getState();
+    settle.current = {
+      render: ui.render,
+      errors: ui.errors,
+      // A drop past x/y = 0 shifts the whole document; pan by the same amount (in diagram units) once its render lands.
+      shift: offset.x || offset.y ? offset : null,
+    };
+    const api = docApi(g.tabId);
+    // Membership changes on drop: each root joins the smallest container under its centre, or the root.
+    api.commit(settleMove(moved, roots, boxes));
+    if (copy) api.select({ entities: roots, connections: [] });
+  };
+
   // One window-level move/up pair drives every gesture.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the helpers only read refs and stores.
   useEffect(() => {
     const move = (e: PointerEvent) => {
       const g = gesture.current;
@@ -214,59 +385,60 @@ export function Canvas() {
         let dx = (e.clientX - g.sx) / z;
         let dy = (e.clientY - g.sy) / z;
         if (!g.moved && Math.hypot(dx, dy) < 3 / z) return;
+        if (!g.moved) setDragging(true);
         g.moved = true;
-        const moving = withDescendants(g.doc0, g.ids);
-        const mine = g.ids.map((id) => g.boxes0[id]).filter((b): b is Box => !!b);
+        // Shift: move along the axis the pointer has travelled furthest (x locked → vertical move).
+        const lock = e.shiftKey ? (Math.abs(dx) >= Math.abs(dy) ? 'y' : 'x') : null;
+        if (lock === 'x') dx = 0;
+        if (lock === 'y') dy = 0;
+        const boxes0 = g.render0.boxes;
+        const mine = g.ids.map((id) => boxes0[id]).filter((b): b is Box => !!b);
         let guides: { x?: number; y?: number }[] = [];
-        if (mine.length && !e.altKey) {
-          const x = Math.min(...mine.map((b) => b.x)) + dx;
-          const y = Math.min(...mine.map((b) => b.y)) + dy;
+        // Alt drops a copy (the originals stay); ⌘ on macOS, Ctrl elsewhere, turns snapping off.
+        g.copy = e.altKey;
+        if (mine.length && !(isMac ? e.metaKey : e.ctrlKey)) {
+          const left = Math.min(...mine.map((b) => b.x));
+          const top = Math.min(...mine.map((b) => b.y));
           const bounds = {
-            x,
-            y,
-            width: Math.max(...mine.map((b) => b.x + b.width)) - Math.min(...mine.map((b) => b.x)),
-            height: Math.max(...mine.map((b) => b.y + b.height)) - Math.min(...mine.map((b) => b.y)),
+            x: left + dx,
+            y: top + dy,
+            width: Math.max(...mine.map((b) => b.x + b.width)) - left,
+            height: Math.max(...mine.map((b) => b.y + b.height)) - top,
           };
-          const others = Object.entries(g.boxes0)
-            .filter(([id]) => !moving.has(id))
+          const others = Object.entries(boxes0)
+            .filter(([id]) => g.copy || !g.moving.has(id))
             .map(([, b]) => b);
           const s = snap(bounds, others, 6 / z);
-          dx += s.dx;
-          dy += s.dy;
-          guides = s.guides;
+          if (lock !== 'x') dx += s.dx;
+          if (lock !== 'y') dy += s.dy;
+          guides = s.guides.filter(
+            (gd) => (gd.x === undefined || lock !== 'x') && (gd.y === undefined || lock !== 'y'),
+          );
         }
-        dx = Math.round(dx);
-        dy = Math.round(dy);
-        const { doc: moved, offset } = dragEntities(g.doc0, g.ids, dx, dy);
-        set({ pan: { x: g.pan0.x - offset.x * z, y: g.pan0.y - offset.y * z } });
-        setGuides(
-          guides.map((guide) => ({
-            ...(guide.x !== undefined ? { x: guide.x + offset.x } : {}),
-            ...(guide.y !== undefined ? { y: guide.y + offset.y } : {}),
-          })),
-        );
-        g.boxes = Object.fromEntries(
-          Object.entries(g.boxes0).map(([id, b]) => [
-            id,
-            {
-              ...b,
-              x: b.x + offset.x + (moving.has(id) ? dx : 0),
-              y: b.y + offset.y + (moving.has(id) ? dy : 0),
-            },
-          ]),
-        );
-        // Reparent during the drag so the old container does not grow around an escaping child.
-        let d = moved;
-        for (const id of g.ids) d = reparent(d, id, g.boxes);
-        useDoc.getState().replace(d);
+        g.dx = Math.round(dx);
+        g.dy = Math.round(dy);
+        setGuides(guides);
+        // No document change and no engine render per move: only the preview moves (dragPreview.ts).
+        showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: g.copy });
       } else if (g.kind === 'resize') {
-        const dx = (e.clientX - g.sx) / z;
-        const dy = (e.clientY - g.sy) / z;
-        useDoc.getState().replace(resizeEntity(g.doc0, g.id, g.box0.width + dx, g.box0.height + dy));
-      } else if (g.kind === 'link' || g.kind === 'marquee') {
+        // An outline follows the handle; the engine renders once, on release (as in draw.io).
+        g.width = Math.max(8, Math.round(g.box0.width + (e.clientX - g.sx) / z));
+        g.height = Math.max(8, Math.round(g.box0.height + (e.clientY - g.sy) / z));
+        setSizing({ id: g.id, box: { ...g.box0, width: g.width, height: g.height } });
+      } else if (g.kind === 'link' || g.kind === 'marquee' || g.kind === 'reconnect') {
         const p = toDoc(e.clientX, e.clientY);
         g.x = p.x;
         g.y = p.y;
+        if (g.kind === 'reconnect') {
+          const t = connectionTarget(p, g.other);
+          const box = t ? r?.boxes[t.id] : undefined;
+          const at = t && box ? portPoint(box, t.port) : null;
+          g.target = t && at ? { ...t, pinned: Math.hypot(at.x - p.x, at.y - p.y) <= 12 / z } : null;
+          if (g.target?.pinned && at) {
+            g.x = at.x;
+            g.y = at.y;
+          }
+        }
         if (g.kind === 'link') {
           g.target = connectionTarget(p, g.from);
           if (g.target && r?.boxes[g.target.id]) {
@@ -298,18 +470,19 @@ export function Canvas() {
     };
     const up = (e: PointerEvent) => {
       const g = gesture.current;
-      if (g?.kind === 'link' && g.keyboard) return;
+      if ((g?.kind === 'link' || g?.kind === 'reconnect') && g.keyboard) return;
       gesture.current = null;
       setGuides([]);
       if (!g) return;
       const store = useDoc.getState();
       if (g.kind === 'move') {
-        if (g.moved) {
-          store.replace(fitContainers(store.doc, g.boxes));
-        }
-        store.endGesture();
+        if (g.moved) drop(g, g.copy);
+        else if (g.toggle) deselect(g.tabId, g.toggle);
       } else if (g.kind === 'resize') {
-        store.endGesture();
+        setSizing(null);
+        const t = tabState(g.tabId);
+        if (t && t.doc === g.doc0 && (g.width !== g.box0.width || g.height !== g.box0.height))
+          docApi(g.tabId).commit(resizeEntity(g.doc0, g.id, g.width, g.height));
       } else if (g.kind === 'link') {
         const p = toDoc(e.clientX, e.clientY);
         const target = connectionTarget(p, g.from);
@@ -320,6 +493,8 @@ export function Canvas() {
             store.select({ entities: [], connections: [next.connections.length - 1] });
           }
         }
+      } else if (g.kind === 'reconnect') {
+        finishReconnect(g, g.target);
       }
       force((n) => n + 1);
     };
@@ -328,12 +503,17 @@ export function Canvas() {
       gesture.current = null;
       setGuides([]);
       setDropActive(false);
-      if (g?.kind === 'move' || g?.kind === 'resize') {
-        useDoc.getState().replace(g.doc0);
-        useDoc.setState({ gestureStart: null });
-        if (g.kind === 'move') useUi.getState().set({ pan: g.pan0 });
-      }
+      if (g?.kind === 'move') endPreview();
+      if (g?.kind === 'resize') setSizing(null);
       if (g) force((n) => n + 1);
+    };
+    // Leaving the window or the tab also ends a drop's wait: apply its pan now, so the tab's saved view is right.
+    const blur = () => {
+      const s = settle.current;
+      settle.current = null;
+      if (s) applyShift(s.shift);
+      if (s) endPreview();
+      cancel();
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') cancel();
@@ -342,14 +522,14 @@ export function Canvas() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', cancel);
-    window.addEventListener('blur', cancel);
+    window.addEventListener('blur', blur);
     window.addEventListener('keydown', key);
     window.addEventListener('dragend', dragEnd);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
-      window.removeEventListener('blur', cancel);
+      window.removeEventListener('blur', blur);
       window.removeEventListener('keydown', key);
       window.removeEventListener('dragend', dragEnd);
     };
@@ -362,29 +542,38 @@ export function Canvas() {
     e.stopPropagation();
     const store = useDoc.getState();
     let ids = store.selection.entities;
-    if (e.shiftKey) {
-      ids = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+    const tabId = useTabs.getState().activeId;
+    // Shift adds at once; Shift on a selected element removes it on release, unless the press becomes a drag.
+    const toggle = e.shiftKey && ids.includes(id) ? id : undefined;
+    if (e.shiftKey && !toggle) {
+      ids = [...ids, id];
       store.select({ entities: ids, connections: [] });
-      if (!ids.includes(id)) return;
-    } else if (!ids.includes(id)) {
+    } else if (!e.shiftKey && !ids.includes(id)) {
       ids = [id];
       store.select({ entities: ids, connections: [] });
     }
     const r = useUi.getState().render;
-    if (!r) return;
+    // While a drop is still rendering, a press selects but does not start another move.
+    if (!r || settle.current) {
+      if (toggle) deselect(tabId, toggle);
+      return;
+    }
     // Move only selection roots: a selected child of a selected group moves with the group.
-    const roots = ids.filter((x) => !ids.some((o) => o !== x && withDescendants(store.doc, [o]).has(x)));
-    store.beginGesture();
+    const roots = selectionRoots(store.doc, ids);
     gesture.current = {
       kind: 'move',
+      tabId,
       sx: e.clientX,
       sy: e.clientY,
       ids: roots,
+      moving: withDescendants(store.doc, roots),
       doc0: store.doc,
-      boxes0: r.boxes,
-      boxes: r.boxes,
-      pan0: useUi.getState().pan,
+      render0: r,
+      dx: 0,
+      dy: 0,
+      copy: false,
       moved: false,
+      toggle,
     };
   };
 
@@ -403,9 +592,17 @@ export function Canvas() {
     const r = useUi.getState().render;
     const box0 = r?.boxes[id];
     if (!box0) return;
-    const store = useDoc.getState();
-    store.beginGesture();
-    gesture.current = { kind: 'resize', sx: e.clientX, sy: e.clientY, id, doc0: store.doc, box0 };
+    gesture.current = {
+      kind: 'resize',
+      tabId: useTabs.getState().activeId,
+      sx: e.clientX,
+      sy: e.clientY,
+      id,
+      doc0: useDoc.getState().doc,
+      box0,
+      width: box0.width,
+      height: box0.height,
+    };
   };
 
   const onLinkDown = (e: React.PointerEvent, id: string, port: Port = 'right') => {
@@ -430,9 +627,74 @@ export function Canvas() {
     force((n) => n + 1);
   };
 
+  /** Grab one end of connection `index`; with `keyboard`, every icon shows its ports to pick from. */
+  const startReconnect = (index: number, end: 'from' | 'to', keyboard: boolean): boolean => {
+    const r = useUi.getState().render;
+    const c = useDoc.getState().doc.connections[index];
+    const pts = r?.connections[r.connectionIds[index] ?? '']?.points;
+    if (!c || !pts || pts.length < 2) return false;
+    commitText();
+    const [ax, ay] = end === 'from' ? pts.at(-1)! : pts[0]!;
+    const [x, y] = end === 'from' ? pts[0]! : pts.at(-1)!;
+    gesture.current = {
+      kind: 'reconnect',
+      tabId: useTabs.getState().activeId,
+      index,
+      end,
+      was: c[end],
+      other: end === 'from' ? c.to : c.from,
+      anchor: { x: ax, y: ay },
+      x,
+      y,
+      target: null,
+      keyboard,
+    };
+    force((n) => n + 1);
+    return true;
+  };
+
+  /**
+   * Re-attach the moved end. Ports are both-or-neither (precise routing needs both): a port drop pins this
+   * end and, if the other end floats, pins it to its port nearest the new end; a body drop pins this end
+   * only when the other end is pinned. An invalid target, a body drop on the element this end is already
+   * on, or a connection whose ends changed meanwhile changes nothing.
+   */
+  const finishReconnect = (g: ReconnectGesture, target: ReconnectGesture['target']) => {
+    const t = tabState(g.tabId);
+    const c = t?.doc.connections[g.index];
+    const r = useUi.getState().render;
+    const otherEnd = g.end === 'from' ? 'to' : 'from';
+    if (!t || !c || !r || !target || c[otherEnd] !== g.other || c[g.end] !== g.was) return;
+    if (target.id === g.was && !target.pinned) return;
+    const otherPort = c[`${otherEnd}Port`];
+    const box = r.boxes[target.id];
+    const otherBox = r.boxes[g.other];
+    let ports: { fromPort: Port; toPort: Port } | undefined;
+    if ((target.pinned || isPort(otherPort)) && box && otherBox) {
+      const mine = target.port;
+      const theirs = isPort(otherPort) ? otherPort : nearestPort(otherBox, portPoint(box, mine));
+      ports = g.end === 'from' ? { fromPort: mine, toPort: theirs } : { fromPort: theirs, toPort: mine };
+    }
+    const next = reconnect(t.doc, g.index, g.end, target.id, ports);
+    if (next !== t.doc) docApi(g.tabId).commit(next);
+  };
+
+  const onEndDown = (e: React.PointerEvent, index: number, end: 'from' | 'to') => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (startReconnect(index, end, false)) e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
   const onKeyboardLink = (id: string, port: Port) => {
     const g = gesture.current;
     const store = useDoc.getState();
+    if (g?.kind === 'reconnect' && g.keyboard) {
+      if (id !== g.other) finishReconnect(g, { id, port, pinned: true });
+      gesture.current = null;
+      force((n) => n + 1);
+      return;
+    }
     if (g?.kind === 'link' && g.keyboard) {
       const next = connect(store.doc, g.from, id, { fromPort: g.fromPort, toPort: port });
       if (next !== store.doc) store.commit(next);
@@ -458,6 +720,14 @@ export function Canvas() {
   const onPortFocus = (id: string, port: Port) => {
     const g = gesture.current;
     const box = useUi.getState().render?.boxes[id];
+    if (g?.kind === 'reconnect' && g.keyboard && box && id !== g.other) {
+      const p = portPoint(box, port);
+      g.target = { id, port, pinned: true };
+      g.x = p.x;
+      g.y = p.y;
+      force((n) => n + 1);
+      return;
+    }
     if (g?.kind !== 'link' || !g.keyboard || !box || id === g.from) return;
     const p = portPoint(box, port);
     g.target = { id, port };
@@ -473,20 +743,60 @@ export function Canvas() {
       .map((x) => x.e);
   }, [doc]);
 
+  const openLabel = (index: number) => {
+    const c = useDoc.getState().doc.connections[index];
+    if (!c) return;
+    commitText();
+    const value = typeof c.label === 'string' ? c.label : '';
+    const next = { tabId: useTabs.getState().activeId, index, from: c.from, to: c.to, value, start: value };
+    labelRef.current = next;
+    setLabelEdit(next);
+  };
+  openLabelRef.current = openLabel;
+  const cancelLabel = () => {
+    labelRef.current = null;
+    setLabelEdit(null);
+  };
+  const commitLabel = () => {
+    const l = labelRef.current;
+    if (!l) return;
+    cancelLabel();
+    if (l.value === l.start) return;
+    const t = tabState(l.tabId);
+    const c = t?.doc.connections[l.index];
+    if (!t || !c) return;
+    if (c.from !== l.from || c.to !== l.to) return toast('Label not saved: the connection changed.');
+    const next = setConnectionLabel(t.doc, l.index, l.value);
+    if (next !== t.doc) docApi(l.tabId).commit(next);
+  };
+
   const commitText = () => {
+    commitLabel();
     if (!editing) return;
-    const store = useDoc.getState();
-    const e = store.doc.entities.find((x) => x.id === editing.id);
-    if (e && getPrimaryText(e) !== editing.value)
-      store.commit(setPrimaryText(store.doc, editing.id, editing.value));
     setEditing(null);
+    const t = tabState(editing.tabId);
+    const e = t?.doc.entities.find((x) => x.id === editing.id);
+    if (t && e && getPrimaryText(e) !== editing.value)
+      docApi(editing.tabId).commit(setPrimaryText(t.doc, editing.id, editing.value));
   };
 
   const g = gesture.current;
   const single = selection.entities.length === 1 ? selection.entities[0]! : null;
-  const singleBox = single ? render?.boxes[single] : undefined;
+  // While resizing, the handles follow the outline.
+  const singleBox = single ? (sizing?.id === single ? sizing.box : render?.boxes[single]) : undefined;
   const singleIcon = doc.entities.find((e) => e.id === single)?.tag === 'Icon';
   const editBox = editing ? render?.boxes[editing.id] : undefined;
+  // A selected connection (alone) shows a handle on each end for reconnecting.
+  const selIndex =
+    selection.connections.length === 1 && !selection.entities.length ? selection.connections[0]! : null;
+  const selPoints =
+    selIndex !== null && render
+      ? render.connections[render.connectionIds[selIndex] ?? '']?.points
+      : undefined;
+  const portTarget =
+    g?.kind === 'link' ? g.target : g?.kind === 'reconnect' && g.target?.pinned ? g.target : null;
+  const labelAt =
+    labelEdit && render ? render.connections[render.connectionIds[labelEdit.index] ?? '']?.label : undefined;
 
   return (
     <div
@@ -539,7 +849,7 @@ export function Canvas() {
           </div>
         )}
         {render && (
-          <div className="overlay">
+          <div className="overlay" ref={overlay}>
             {order.map((e) => {
               const b = render.boxes[e.id];
               if (!b) return null;
@@ -548,14 +858,14 @@ export function Canvas() {
                 <div
                   key={e.id}
                   data-id={e.id}
-                  className={`hit${container ? ' container' : ''}${selection.entities.includes(e.id) ? ' sel' : ''}${g?.kind === 'link' && g.target?.id === e.id ? ' connection-target' : ''}`}
+                  className={`hit${container ? ' container' : ''}${selection.entities.includes(e.id) ? ' sel' : ''}${(g?.kind === 'link' || g?.kind === 'reconnect') && g.target?.id === e.id ? ' connection-target' : ''}`}
                   style={{ left: b.x, top: b.y, width: b.width, height: b.height }}
                   onPointerDown={(ev) => onEntityDown(ev, e.id)}
                   onPointerEnter={() => setHovered(e.id)}
                   onPointerLeave={() => setHovered((id) => (id === e.id ? null : id))}
                   onDoubleClick={(ev) => {
                     ev.stopPropagation();
-                    setEditing({ id: e.id, value: getPrimaryText(e) });
+                    setEditing({ tabId: useTabs.getState().activeId, id: e.id, value: getPrimaryText(e) });
                   }}
                 />
               );
@@ -564,25 +874,45 @@ export function Canvas() {
               {render.connectionIds.map((cid, i) => {
                 const geo = render.connections[cid];
                 if (!geo) return null;
+                const pick = (ev: React.PointerEvent) => {
+                  ev.stopPropagation();
+                  const sel = useDoc.getState().selection;
+                  useDoc.getState().select({
+                    entities: [],
+                    connections: ev.shiftKey ? [...new Set([...sel.connections, i])] : [i],
+                  });
+                };
+                const edit = (ev: React.MouseEvent) => {
+                  ev.stopPropagation();
+                  openLabel(i);
+                };
                 return (
-                  <path
-                    key={cid}
-                    data-conn={i}
-                    d={geo.d}
-                    className={`conn-hit${selection.connections.includes(i) ? ' sel' : ''}`}
-                    onPointerDown={(ev) => {
-                      ev.stopPropagation();
-                      const sel = useDoc.getState().selection;
-                      useDoc.getState().select({
-                        entities: [],
-                        connections: ev.shiftKey ? [...new Set([...sel.connections, i])] : [i],
-                      });
-                    }}
-                  />
+                  <g key={cid}>
+                    <path
+                      data-conn={i}
+                      d={geo.d}
+                      className={`conn-hit${selection.connections.includes(i) ? ' sel' : ''}`}
+                      onPointerDown={pick}
+                      onDoubleClick={edit}
+                    />
+                    {geo.labelBox && (
+                      <rect
+                        className="conn-hit-label"
+                        data-conn-label={i}
+                        x={geo.labelBox.x}
+                        y={geo.labelBox.y}
+                        width={geo.labelBox.width}
+                        height={geo.labelBox.height}
+                        onPointerDown={pick}
+                        onDoubleClick={edit}
+                      />
+                    )}
+                  </g>
                 );
               })}
             </svg>
-            {singleBox && !editing && (
+            <svg className="preview-svg" ref={lines} width="1" height="1" aria-hidden="true" />
+            {singleBox && !editing && !dragging && (
               <>
                 <div
                   className="handle"
@@ -610,6 +940,7 @@ export function Canvas() {
               </>
             )}
             {!editing &&
+              !dragging &&
               order
                 .filter((e) => e.tag === 'Icon')
                 .map((e) => {
@@ -617,7 +948,8 @@ export function Canvas() {
                   const visible =
                     hovered === e.id ||
                     selection.entities.includes(e.id) ||
-                    (g?.kind === 'link' && (g.keyboard || g.from === e.id || g.target?.id === e.id));
+                    (g?.kind === 'link' && (g.keyboard || g.from === e.id || g.target?.id === e.id)) ||
+                    (g?.kind === 'reconnect' && (g.keyboard || g.target?.id === e.id));
                   if (!box || !visible) return null;
                   return (
                     <ConnectionPorts
@@ -625,7 +957,7 @@ export function Canvas() {
                       id={e.id}
                       box={box}
                       zoom={zoom}
-                      target={g?.kind === 'link' && g.target?.id === e.id ? g.target.port : undefined}
+                      target={portTarget?.id === e.id ? portTarget.port : undefined}
                       onStart={onLinkDown}
                       onKeyboard={onKeyboardLink}
                       onHover={setHovered}
@@ -641,6 +973,66 @@ export function Canvas() {
                   x2={g.x}
                   y2={g.y}
                   stroke="#5e6ad2"
+                  strokeWidth={2 / zoom}
+                  strokeDasharray={g.target ? undefined : `${6 / zoom} ${4 / zoom}`}
+                />
+              </svg>
+            )}
+            {sizing && (
+              <div
+                className="resize-preview"
+                data-testid="resize-preview"
+                style={{
+                  left: sizing.box.x,
+                  top: sizing.box.y,
+                  width: sizing.box.width,
+                  height: sizing.box.height,
+                }}
+              />
+            )}
+            {selIndex !== null &&
+              selPoints &&
+              selPoints.length >= 2 &&
+              !labelEdit &&
+              (['from', 'to'] as const).map((end) => {
+                const [x, y] = end === 'from' ? selPoints[0]! : selPoints.at(-1)!;
+                return (
+                  <button
+                    key={end}
+                    type="button"
+                    className="conn-end"
+                    data-testid={`conn-end-${end}`}
+                    aria-label={
+                      end === 'from'
+                        ? 'Reconnect the start of this connection'
+                        : 'Reconnect the end of this connection'
+                    }
+                    title="Drag to another element or one of its ports"
+                    style={{ left: x, top: y, transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
+                    onPointerDown={(ev) => onEndDown(ev, selIndex, end)}
+                    onKeyDown={(ev) => {
+                      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      startReconnect(selIndex, end, true);
+                    }}
+                  />
+                );
+              })}
+            {g?.kind === 'reconnect' && (
+              <svg
+                className="link-svg"
+                data-testid="reconnect-preview"
+                width="1"
+                height="1"
+                aria-hidden="true"
+              >
+                <line
+                  x1={g.anchor.x}
+                  y1={g.anchor.y}
+                  x2={g.x}
+                  y2={g.y}
+                  style={{ stroke: 'var(--line)' }}
                   strokeWidth={2 / zoom}
                   strokeDasharray={g.target ? undefined : `${6 / zoom} ${4 / zoom}`}
                 />
@@ -693,10 +1085,33 @@ export function Canvas() {
                 onBlur={commitText}
                 onKeyDown={(ev) => {
                   ev.stopPropagation();
+                  if (ev.nativeEvent.isComposing) return; // an IME's Enter/Escape ends the composition only
                   if (ev.key === 'Escape') setEditing(null);
                   if (ev.key === 'Enter' && !ev.shiftKey) {
                     ev.preventDefault();
                     commitText();
+                  }
+                }}
+              />
+            )}
+            {labelEdit && labelAt && (
+              <input
+                className="text-edit label-edit"
+                aria-label="Connection label"
+                autoFocus
+                value={labelEdit.value}
+                style={{ left: labelAt.x, top: labelAt.y }}
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onChange={(ev) => setLabelEdit({ ...labelEdit, value: ev.target.value })}
+                onBlur={commitLabel}
+                onKeyDown={(ev) => {
+                  // Keys stay in the field: ⌘Z, ⌘C, Delete and arrows never reach the canvas shortcuts.
+                  ev.stopPropagation();
+                  if (ev.nativeEvent.isComposing) return; // an IME's Enter/Escape ends the composition only
+                  if (ev.key === 'Escape') cancelLabel();
+                  if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    commitLabel();
                   }
                 }}
               />

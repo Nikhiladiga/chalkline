@@ -2,18 +2,26 @@ import { describe, expect, it } from 'vitest';
 import type { Doc } from '../engine/types';
 import {
   addEntity,
+  alignEntities,
   clampDelta,
   connect,
+  copyElements,
   deleteElements,
   descendants,
+  distributeEntities,
   dragEntities,
   duplicateEntities,
   getPrimaryText,
   insertIcon,
   moveEntities,
+  pasteElements,
+  reconnect,
   reparent,
+  selectionRoots,
+  setConnectionLabel,
   setPrimaryText,
   setProp,
+  settleMove,
   snap,
   uniqueId,
 } from './ops';
@@ -315,5 +323,253 @@ describe('snap', () => {
       dy: 0,
       guides: [],
     });
+  });
+});
+
+describe('selectionRoots', () => {
+  it('drops ids that sit inside another selected id', () => {
+    expect(selectionRoots(doc(), ['vpc', 'api', 'db', 'web'])).toEqual(['vpc', 'web']);
+    expect(selectionRoots(doc(), ['sub', 'api'])).toEqual(['sub', 'api']);
+  });
+
+  it('stays near-linear on a large select-all', () => {
+    // 100 groups, each with a nested group and 8 leaves inside it: 1000 entities, depth 3.
+    const entities: Doc['entities'] = [];
+    for (let g = 0; g < 100; g++) {
+      entities.push({ tag: 'Group', id: `g${g}`, x: 0, y: 0 });
+      entities.push({ tag: 'Group', id: `g${g}n`, x: 0, y: 0, containerId: `g${g}` });
+      for (let i = 0; i < 8; i++)
+        entities.push({ tag: 'Shape', id: `g${g}l${i}`, x: 0, y: 0, containerId: `g${g}n` });
+    }
+    const big: Doc = { entities, connections: [] };
+    const ids = entities.map((e) => e.id);
+    const t = performance.now();
+    const roots = selectionRoots(big, ids);
+    const ms = performance.now() - t;
+    expect(roots).toEqual(Array.from({ length: 100 }, (_, g) => `g${g}`));
+    expect(ms).toBeLessThan(50);
+  });
+});
+
+describe('copyElements / pasteElements', () => {
+  it('copies descendants and inner connections without routes or ids', () => {
+    const clip = copyElements(doc(), ['vpc']);
+    expect(clip.entities.map((e) => e.id)).toEqual(['vpc', 'api', 'sub', 'db']);
+    expect(clip.connections).toEqual([{ from: 'api', to: 'db' }]);
+    expect(copyElements(doc(), ['sub']).connections).toEqual([]);
+  });
+
+  it('pastes with fresh ids and an offset, remapping containers and connection ends', () => {
+    const { doc: out, newIds, idMap } = pasteElements(doc(), copyElements(doc(), ['vpc']), 20, 20, true);
+    expect(newIds).toEqual(['vpc-2']);
+    expect(idMap.get('db')).toBe('db-2');
+    expect(out.entities.find((e) => e.id === 'db-2')).toMatchObject({ containerId: 'sub-2', x: 240, y: 120 });
+    expect(out.connections.at(-1)).toEqual({ from: 'api-2', to: 'db-2' });
+  });
+
+  it('keeps a root in its container only when asked and the container exists', () => {
+    const clip = copyElements(doc(), ['api']);
+    expect(pasteElements(doc(), clip, 0, 0, true).doc.entities.at(-1)!.containerId).toBe('vpc');
+    expect(pasteElements(doc(), clip, 0, 0, false).doc.entities.at(-1)!.containerId).toBeUndefined();
+    const empty: Doc = { entities: [], connections: [] };
+    const into = pasteElements(empty, clip, 0, 0, true);
+    expect(into.doc.entities).toEqual(
+      [{ ...clip.entities[0], id: 'api' }].map(({ containerId: _, ...e }) => e),
+    );
+  });
+
+  it('drops pasted connections whose ends were not pasted', () => {
+    const clip: Doc = {
+      entities: [{ tag: 'Shape', id: 'x', x: 0, y: 0 }],
+      connections: [{ from: 'x', to: 'missing' }],
+    };
+    expect(pasteElements(doc(), clip, 0, 0, false).doc.connections).toHaveLength(2);
+  });
+
+  it('strips foreign connection ids and routes, and pastes 2,000 elements quickly', () => {
+    const clip: Doc = {
+      entities: Array.from({ length: 2000 }, (_, i) => ({ tag: 'Shape', id: `n${i}`, x: i, y: 0 })),
+      connections: [{ from: 'n0', to: 'n1', id: 'k', points: [[1, 1]] } as never],
+    };
+    const t0 = performance.now();
+    const { doc: out } = pasteElements(doc(), clip, 0, 0, false);
+    expect(performance.now() - t0).toBeLessThan(500);
+    expect(new Set(out.entities.map((e) => e.id)).size).toBe(out.entities.length);
+    expect(out.connections.at(-1)).toEqual({ from: 'n0', to: 'n1' });
+  });
+});
+
+describe('setConnectionLabel', () => {
+  it('sets, trims and removes a label and its stale box, with no change for the same text', () => {
+    const d = doc();
+    const set = setConnectionLabel(d, 0, '  HTTP  ');
+    expect(set.connections[0]!.label).toBe('HTTP');
+    expect(set.connections[0]).not.toHaveProperty('labelPlacement');
+    expect(setConnectionLabel(set, 0, 'HTTP')).toBe(set);
+    expect(setConnectionLabel(set, 0, '   ').connections[0]).not.toHaveProperty('label');
+    expect(setConnectionLabel(d, 7, 'x')).toBe(d);
+  });
+});
+
+describe('reconnect', () => {
+  it('moves one end, drops the stale route and keeps the rest', () => {
+    const d = doc();
+    d.connections[0]!.label = 'calls';
+    const out = reconnect(d, 0, 'to', 'db');
+    expect(out.connections[0]).toEqual({ from: 'web', to: 'db', label: 'calls' });
+    expect(d.connections[0]!.to).toBe('api'); // input untouched
+  });
+
+  it('sets ports on both ends or on neither', () => {
+    const pinned = reconnect(doc(), 0, 'to', 'db', { fromPort: 'left', toPort: 'top' });
+    expect(pinned.connections[0]).toMatchObject({ from: 'web', to: 'db', fromPort: 'left', toPort: 'top' });
+    const floating = reconnect(pinned, 0, 'to', 'api');
+    expect(floating.connections[0]).not.toHaveProperty('fromPort');
+    expect(floating.connections[0]).not.toHaveProperty('toPort');
+  });
+
+  it('refuses self-links, missing targets or connections, no-ops and duplicates', () => {
+    const d = doc();
+    expect(reconnect(d, 0, 'to', 'web')).toBe(d); // web → web
+    expect(reconnect(d, 0, 'to', 'nope')).toBe(d);
+    expect(reconnect(d, 9, 'to', 'db')).toBe(d);
+    expect(reconnect(d, 0, 'to', 'api')).toBe(d); // unchanged
+    expect(reconnect(d, 0, 'from', 'api')).toBe(d); // api → api
+    const twin = reconnect(d, 1, 'from', 'web'); // api → db becomes web → db
+    expect(reconnect(twin, 0, 'to', 'db')).toBe(twin); // would duplicate web → db
+  });
+
+  it('treats duplicates as connect does: a floating pair duplicates any pinning, ports only their own', () => {
+    const d = connect(doc(), 'web', 'db', { fromPort: 'left', toPort: 'top' });
+    expect(reconnect(d, 0, 'to', 'db')).toBe(d); // web → db already exists
+    expect(reconnect(d, 0, 'to', 'db', { fromPort: 'left', toPort: 'top' })).toBe(d);
+    const other = reconnect(d, 0, 'to', 'db', { fromPort: 'bottom', toPort: 'right' });
+    expect(other.connections[0]).toMatchObject({
+      from: 'web',
+      to: 'db',
+      fromPort: 'bottom',
+      toPort: 'right',
+    });
+    // Moving an end to another port of the same element is a change.
+    const moved = reconnect(other, 0, 'to', 'db', { fromPort: 'bottom', toPort: 'left' });
+    expect(moved.connections[0]).toMatchObject({ toPort: 'left' });
+  });
+});
+
+describe('alignEntities / distributeEntities', () => {
+  const row = (): Doc => ({
+    entities: [
+      { tag: 'Icon', id: 'p', x: 100, y: 100 },
+      { tag: 'Icon', id: 'q', x: 220, y: 200 },
+      { tag: 'Icon', id: 'r', x: 600, y: 300 },
+    ],
+    connections: [],
+  });
+  // Render boxes; the ops read only their sizes, positions come from the document.
+  const boxes = {
+    p: { x: 0, y: 0, width: 50, height: 50 },
+    q: { x: 0, y: 0, width: 50, height: 50 },
+    r: { x: 0, y: 0, width: 50, height: 50 },
+  };
+  const at = (d: Doc) => d.entities.map((e) => [e.x, e.y]);
+
+  it('aligns edges and centres to the selection box', () => {
+    expect(at(alignEntities(row(), ['p', 'q', 'r'], boxes, 'left'))).toEqual([
+      [100, 100],
+      [100, 200],
+      [100, 300],
+    ]);
+    expect(at(alignEntities(row(), ['p', 'q', 'r'], boxes, 'center'))).toEqual([
+      [350, 100],
+      [350, 200],
+      [350, 300],
+    ]);
+    expect(at(alignEntities(row(), ['p', 'q', 'r'], boxes, 'bottom'))).toEqual([
+      [100, 300],
+      [220, 300],
+      [600, 300],
+    ]);
+  });
+
+  it('moves a container with its children; a container plus its own child is one root, so nothing moves', () => {
+    const sized = {
+      vpc: { x: 0, y: 0, width: 400, height: 300 },
+      api: { x: 40, y: 60, width: 48, height: 48 },
+      sub: { x: 200, y: 60, width: 150, height: 150 },
+      db: { x: 220, y: 100, width: 48, height: 48 },
+      web: { x: 500, y: 60, width: 90, height: 40 },
+    };
+    const out = alignEntities(doc(), ['vpc', 'web'], sized, 'top');
+    expect(out.entities.find((e) => e.id === 'web')!.y).toBe(0);
+    const down = alignEntities(doc(), ['vpc', 'web'], sized, 'bottom');
+    expect(at(down).slice(0, 4)).toEqual([
+      [0, 0],
+      [40, 60],
+      [200, 60],
+      [220, 100],
+    ]);
+    expect(down.entities.find((e) => e.id === 'web')!.y).toBe(260);
+    const one = doc();
+    expect(alignEntities(one, ['web'], sized, 'top')).toBe(one);
+    expect(alignEntities(one, ['vpc', 'api', 'db'], sized, 'left')).toBe(one);
+    expect(distributeEntities(one, ['vpc', 'sub', 'db', 'api'], sized, 'x')).toBe(one);
+  });
+
+  it('aligns across containers in absolute coordinates; grouping never changes, containers still grow', () => {
+    const d: Doc = {
+      entities: [
+        { tag: 'Group', id: 'g', x: 0, y: 0, width: 200, height: 200 },
+        { tag: 'Icon', id: 'k', x: 20, y: 20, containerId: 'g' },
+        { tag: 'Icon', id: 'm', x: 150, y: 300 },
+      ],
+      connections: [],
+    };
+    const sized = {
+      g: { x: 0, y: 0, width: 200, height: 200 },
+      k: { x: 20, y: 20, width: 48, height: 48 },
+      m: { x: 150, y: 300, width: 100, height: 40 },
+    };
+    // m's centre lands on g's edge: a drop would adopt it, align does not.
+    const top = alignEntities(d, ['k', 'm'], sized, 'top');
+    expect(top.entities[2]).toMatchObject({ x: 150, y: 20 });
+    expect(top.entities[2]!.containerId).toBeUndefined();
+    expect(top.entities[0]).toMatchObject({ x: 0, y: 0, width: 200, height: 200 });
+    // k's centre leaves g: it stays g's child, and g grows to hold it with the 32 px drop padding.
+    const right = alignEntities(d, ['k', 'm'], sized, 'right');
+    expect(right.entities[1]).toMatchObject({ x: 202, y: 20, containerId: 'g' });
+    expect(right.entities[0]).toMatchObject({ x: 0, y: 0, width: 282, height: 200 });
+  });
+
+  it('settleMove reparents every listed root, moved or not, then grows containers', () => {
+    const boxes = {
+      vpc: { x: 0, y: 0, width: 400, height: 300 },
+      sub: { x: 200, y: 60, width: 150, height: 150 },
+      api: { x: 40, y: 60, width: 48, height: 48 },
+      db: { x: 220, y: 100, width: 48, height: 48 },
+      web: { x: 230, y: 90, width: 100, height: 40 },
+    };
+    const out = settleMove(doc(), ['web'], boxes);
+    expect(out.entities[4]!.containerId).toBe('sub');
+    expect(settleMove(doc(), [], boxes).entities.map((e) => e.containerId)).toEqual(
+      doc().entities.map((e) => e.containerId),
+    );
+  });
+
+  it('distributes with equal gaps and leaves the ends in place; needs three roots', () => {
+    expect(at(distributeEntities(row(), ['p', 'q', 'r'], boxes, 'x'))).toEqual([
+      [100, 100],
+      [350, 200],
+      [600, 300],
+    ]);
+    expect(at(distributeEntities(row(), ['r', 'q', 'p'], boxes, 'y'))).toEqual([
+      [100, 100],
+      [220, 200],
+      [600, 300],
+    ]);
+    const wide = { ...boxes, q: { x: 0, y: 0, width: 150, height: 50 } };
+    expect(at(distributeEntities(row(), ['p', 'q', 'r'], wide, 'x'))[1]).toEqual([300, 200]);
+    const two = row();
+    expect(distributeEntities(two, ['p', 'q'], boxes, 'x')).toBe(two);
+    expect(alignEntities(two, ['p', 'q', 'missing'], {}, 'left')).toBe(two);
   });
 });

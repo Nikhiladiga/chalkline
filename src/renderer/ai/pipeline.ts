@@ -103,7 +103,7 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
       doc = toSplit(extractJson(text));
       // Model-authored routes are guesses; the router does better.
       for (const c of doc.connections) for (const k of ROUTE_KEYS) delete c[k];
-      const fixed = fixIcons(doc, deps.names, deps.aliases);
+      const fixed = fixIcons(doc, deps.names, deps.aliases, req.mode === 'edit' ? req.current : undefined);
       doc = fixed.doc;
       const v = await deps.validate(doc);
       errors = [...v.errors, ...completeness(doc, req)];

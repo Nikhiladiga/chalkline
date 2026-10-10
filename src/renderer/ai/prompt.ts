@@ -178,7 +178,8 @@ export const FEW_SHOT: { user: string; doc: Doc }[] = [
   },
 ];
 
-const GENERAL =
+/** Always offered to the model; mostly concepts (bell, database), plus common brands. */
+export const GENERAL =
   `user users globe cloud server database lock key shield mail smartphone monitor laptop cpu hard-drive
 file-text folder search settings bell credit-card shopping-cart message-square activity zap layers package network
 git-branch github gitlab docker kubernetes postgres mysql mongodb redis kafka rabbitmq nginx node react python java go

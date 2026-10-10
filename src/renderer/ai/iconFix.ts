@@ -1,4 +1,5 @@
 import type { Doc } from '../engine/types';
+import { GENERAL } from './prompt';
 
 /** Levenshtein distance, bailing out once it exceeds `max`. */
 export function distance(a: string, b: string, max: number): number {
@@ -44,26 +45,61 @@ export function resolveIcon(
   return found?.name;
 }
 
-/** Replace unknown icon names (entity `icon` and container `title.icon`) with catalog names. */
+/** Brands in the general vocabulary; the rest of it names concepts (bell, database, user). */
+const BRANDS = new Set(
+  'github gitlab docker kubernetes postgres mysql mongodb redis kafka rabbitmq nginx node react python java go elasticsearch grafana prometheus openai anthropic stripe terraform cloudflare vercel firebase supabase graphql'.split(
+    ' ',
+  ),
+);
+const CONCEPTS = new Set(GENERAL.filter((n) => !BRANDS.has(n)));
+/** Aliases that turn a concept into one vendor's product ("cache" → redis): never trusted for a caption. */
+const VENDOR_GUESSES = new Set(['queue', 'cache', 'cdn', 'vpc']);
+
+/** The product icon a caption names exactly ("Sentry", "PostgreSQL"); never fuzzy, never a concept. */
+export function namedIcon(
+  label: string,
+  known: Set<string>,
+  aliases: Record<string, string>,
+): string | undefined {
+  const s = slug(label);
+  const hit = VENDOR_GUESSES.has(s) ? undefined : known.has(s) ? s : aliases[s];
+  return hit && known.has(hit) && !CONCEPTS.has(hit) ? hit : undefined;
+}
+
+/**
+ * Replace unknown icon names (entity `icon` and container `title.icon`) with catalog names, then let a
+ * caption that exactly names a product replace a generic pick ("Sentry" drawn as a bell). Specific picks
+ * and entities whose id and icon are unchanged from `keep` (the diagram being edited) are left alone.
+ */
 export function fixIcons(
   doc: Doc,
   names: string[],
   aliases: Record<string, string>,
+  keep?: Doc,
 ): { doc: Doc; fixes: string[] } {
   const out = structuredClone(doc);
   const fixes: string[] = [];
-  const fix = (holder: Record<string, unknown> | undefined) => {
+  const known = new Set(names);
+  const before = new Map(keep?.entities.map((e) => [e.id, e]));
+  const fix = (holder: Record<string, unknown> | undefined, label: unknown, kept: unknown) => {
     const name = holder?.icon;
     if (typeof name !== 'string' || !name) return;
-    const hit = resolveIcon(name, names, aliases);
-    if (hit && hit !== name) {
-      holder!.icon = hit;
-      fixes.push(`${name} → ${hit}`);
+    let icon = resolveIcon(name, names, aliases) ?? name;
+    const named =
+      typeof label === 'string' && kept !== name && CONCEPTS.has(icon)
+        ? namedIcon(label, known, aliases)
+        : undefined;
+    if (named) icon = named;
+    if (icon !== name) {
+      holder!.icon = icon;
+      fixes.push(`${name} → ${icon}`);
     }
   };
   for (const e of out.entities) {
-    fix(e);
-    fix(e.title as Record<string, unknown> | undefined);
+    const old = before.get(e.id);
+    fix(e, (e.texts as { text?: unknown }[] | undefined)?.[0]?.text, old?.icon);
+    const title = e.title as Record<string, unknown> | undefined;
+    fix(title, title?.text, (old?.title as Record<string, unknown> | undefined)?.icon);
   }
   return { doc: out, fixes };
 }

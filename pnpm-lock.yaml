@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@eraserlabs/render@0.2.0': 478bd65a8fa87e04991d0e07bebddb058c86234b02f2c4c22ea842c86307f8b0
+
 importers:
 
   .:
@@ -50,7 +53,7 @@ importers:
         version: 0.2.0
       '@eraserlabs/render':
         specifier: 0.2.0
-        version: 0.2.0
+        version: 0.2.0(patch_hash=478bd65a8fa87e04991d0e07bebddb058c86234b02f2c4c22ea842c86307f8b0)
       '@eraserlabs/resolve':
         specifier: 0.2.0
         version: 0.2.0
@@ -2555,7 +2558,7 @@ snapshots:
     dependencies:
       '@eraserlabs/layout': 0.2.0
       '@eraserlabs/protocol': 0.2.0
-      '@eraserlabs/render': 0.2.0
+      '@eraserlabs/render': 0.2.0(patch_hash=478bd65a8fa87e04991d0e07bebddb058c86234b02f2c4c22ea842c86307f8b0)
       '@eraserlabs/resolve': 0.2.0
 
   '@eraserlabs/diagrams@0.2.0':
@@ -2563,7 +2566,7 @@ snapshots:
       '@eraserlabs/diagram-templates': 0.2.0
       '@eraserlabs/layout': 0.2.0
       '@eraserlabs/protocol': 0.2.0
-      '@eraserlabs/render': 0.2.0
+      '@eraserlabs/render': 0.2.0(patch_hash=478bd65a8fa87e04991d0e07bebddb058c86234b02f2c4c22ea842c86307f8b0)
       '@eraserlabs/resolve': 0.2.0
       '@eraserlabs/utils': 0.2.0
       playwright-core: 1.61.1
@@ -2574,7 +2577,7 @@ snapshots:
 
   '@eraserlabs/protocol@0.2.0': {}
 
-  '@eraserlabs/render@0.2.0':
+  '@eraserlabs/render@0.2.0(patch_hash=478bd65a8fa87e04991d0e07bebddb058c86234b02f2c4c22ea842c86307f8b0)':
     dependencies:
       '@eraserlabs/layout': 0.2.0
       '@eraserlabs/protocol': 0.2.0

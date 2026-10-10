@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { getPrimaryText, setPrimaryText, setProp } from '../doc/ops';
+import {
+  type Align,
+  alignEntities,
+  distributeEntities,
+  getPrimaryText,
+  selectionRoots,
+  setPrimaryText,
+  setProp,
+} from '../doc/ops';
 import { docApi, tabState, useDoc, useTabs } from '../doc/store';
 import { tagSchema } from '../engine/engine';
+import type { Box, Doc } from '../engine/types';
 import { deleteSelection } from './actions';
 import { IconTrash } from './icons';
 import { type Field, fieldsFor, labelOf } from './schemaFields';
@@ -18,6 +27,14 @@ const TOKENS: [string, string][] = [
   ['black', '#3f3f46'],
 ];
 const PALETTE_KEYS = new Set(['color']);
+const ALIGN: [Align, string][] = [
+  ['left', 'Align left'],
+  ['center', 'Align center'],
+  ['right', 'Align right'],
+  ['top', 'Align top'],
+  ['middle', 'Align middle'],
+  ['bottom', 'Align bottom'],
+];
 
 function FieldInput({
   field,
@@ -172,7 +189,9 @@ export function Inspector() {
   const selection = useDoc((s) => s.selection);
   const entity =
     selection.entities.length === 1 ? doc.entities.find((e) => e.id === selection.entities[0]) : undefined;
-  const connIdx = !entity && selection.connections.length === 1 ? selection.connections[0]! : undefined;
+  // One line alone gets its inspector; lines among several elements leave the multi-selection view.
+  const connIdx =
+    !selection.entities.length && selection.connections.length === 1 ? selection.connections[0]! : undefined;
   const conn = connIdx !== undefined ? doc.connections[connIdx] : undefined;
   const tag = entity?.tag ?? conn?.tag ?? (conn ? 'Relationship' : undefined);
   const [fields, setFields] = useState<Field[]>([]);
@@ -183,6 +202,16 @@ export function Inspector() {
   const count = selection.entities.length + selection.connections.length;
   if (!count) return <p className="details-hint">Select an element to edit it.</p>;
   if (!entity && !conn) {
+    // Arrange (draw.io): selected lines are ignored; a group's own selected children move with it.
+    const roots = selectionRoots(doc, selection.entities).length;
+    // One commit per click (one undo step, one render), bound to this inspector's tab.
+    const arrange = (op: (d: Doc, ids: string[], boxes: Record<string, Box>) => Doc) => {
+      const t = tabState(tabId);
+      const boxes = useUi.getState().render?.boxes;
+      if (!t || !boxes) return;
+      const next = op(t.doc, t.selection.entities, boxes);
+      if (next !== t.doc) docApi(tabId).commit(next);
+    };
     return (
       <div className="section">
         <div className="row">
@@ -192,6 +221,34 @@ export function Inspector() {
             Delete
           </button>
         </div>
+        {roots >= 2 && (
+          <div className="field">
+            <span>Arrange</span>
+            <fieldset className="arrange" aria-label="Align and distribute">
+              {ALIGN.map(([how, label]) => (
+                <button
+                  key={how}
+                  type="button"
+                  className="btn"
+                  onClick={() => arrange((d, ids, b) => alignEntities(d, ids, b, how))}
+                >
+                  {label}
+                </button>
+              ))}
+              {(['x', 'y'] as const).map((axis) => (
+                <button
+                  key={axis}
+                  type="button"
+                  className="btn"
+                  disabled={roots < 3}
+                  onClick={() => arrange((d, ids, b) => distributeEntities(d, ids, b, axis))}
+                >
+                  {axis === 'x' ? 'Distribute horizontally' : 'Distribute vertically'}
+                </button>
+              ))}
+            </fieldset>
+          </div>
+        )}
       </div>
     );
   }

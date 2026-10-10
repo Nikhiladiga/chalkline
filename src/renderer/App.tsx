@@ -8,6 +8,7 @@ import { checkLayout } from './layout/quality';
 import * as actions from './ui/actions';
 import {
   closeTab,
+  copySelection,
   cycleTab,
   deleteSelection,
   duplicateSelection,
@@ -17,6 +18,7 @@ import {
   nudge,
   offerRecovery,
   openFile,
+  pasteClipboard,
   save,
   tabKey,
 } from './ui/actions';
@@ -42,12 +44,20 @@ function useRenderLoop(): void {
   const theme = useUi((s) => s.theme);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick forces a re-render of the same doc.
   useEffect(() => {
-    void render(applyTheme(doc, theme)).then((r) => {
-      if ((!r.ok && r.stale) || useDoc.getState().doc !== doc) return; // switched tabs mid-render
-      const ui = useUi.getState();
-      if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
-      else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });
-    });
+    render(applyTheme(doc, theme)).then(
+      (r) => {
+        if ((!r.ok && r.stale) || useDoc.getState().doc !== doc) return; // switched tabs mid-render
+        const ui = useUi.getState();
+        if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
+        else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });
+      },
+      // A throwing engine shows as an error, so a drop waiting on this render still settles.
+      (e: unknown) => {
+        if (useDoc.getState().doc !== doc) return;
+        const message = `Render failed: ${e instanceof Error ? e.message : String(e)}`;
+        useUi.getState().set({ errors: [{ code: 'E_RENDER', path: '', message }], fitPending: false });
+      },
+    );
   }, [doc, tick, theme]);
 }
 
@@ -75,7 +85,17 @@ function useShortcuts(): void {
       const k = e.key.toLowerCase();
       if (mod && k === 'z') store[e.shiftKey ? 'redo' : 'undo']();
       else if (mod && k === 'y') store.redo();
-      else if (mod && k === 'd') duplicateSelection();
+      // Highlighted page text (e.g. an AI message) keeps the native copy, even with elements selected.
+      else if (
+        mod &&
+        (k === 'c' || k === 'x') &&
+        store.selection.entities.length &&
+        !getSelection()?.toString()
+      )
+        void copySelection(k === 'x');
+      else if (mod && k === 'v') {
+        if (!e.repeat) void pasteClipboard();
+      } else if (mod && k === 'd') duplicateSelection();
       else if (mod && k === 'a')
         store.select({ entities: store.doc.entities.map((x) => x.id), connections: [] });
       else if (mod && e.key === ',') useUi.getState().set({ settingsOpen: true });

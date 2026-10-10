@@ -44,3 +44,35 @@ export function docFromJson(json: unknown): Doc {
   const title = (json as { title?: unknown }).title;
   return typeof title === 'string' ? { title, ...doc } : doc;
 }
+
+/** Clipboard text as a diagram fragment, or null when it is not one (plain text, other JSON). */
+// ponytail: 5,000 elements bounds paste cost (id allocation, validation, render); raise if real diagrams need more.
+export const MAX_FRAGMENT = 5000;
+
+export function fragmentFromText(text: string): Doc | null {
+  if (text.length > 10_000_000) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
+  const { entities, connections } = toSplit(json);
+  const ok =
+    entities.length > 0 &&
+    entities.length + connections.length <= MAX_FRAGMENT &&
+    entities.every(
+      (e) =>
+        typeof e?.id === 'string' &&
+        typeof e.tag === 'string' &&
+        Number.isFinite(e.x) &&
+        Number.isFinite(e.y),
+    );
+  return ok
+    ? {
+        entities,
+        connections: connections.filter((c) => typeof c.from === 'string' && typeof c.to === 'string'),
+      }
+    : null;
+}

@@ -1,8 +1,15 @@
 import { buildHtmlDocument } from '@eraserlabs/render';
 import type { OpenedFile, SavedFile } from '../../shared/ipc';
 import { fitContainers } from '../ai/merge';
-import { docFromJson, toSplit } from '../ai/parse';
-import { deleteElements, duplicateEntities, insertIcon, moveEntities } from '../doc/ops';
+import { docFromJson, fragmentFromText, toSplit } from '../ai/parse';
+import {
+  copyElements,
+  deleteElements,
+  duplicateEntities,
+  insertIcon,
+  moveEntities,
+  pasteElements,
+} from '../doc/ops';
 import { fromRecovery, restoredTabs } from '../doc/recovery';
 import {
   activateTab,
@@ -360,6 +367,56 @@ export function deleteSelection(id = useTabs.getState().activeId): void {
   const ops = docApi(id);
   ops.commit(deleteElements(t.doc, t.selection.entities, t.selection.connections));
   ops.select({ entities: [], connections: [] });
+}
+
+/** Pastes step 20 px down and right, like draw.io's cascade. */
+const PASTE_STEP = 20;
+/**
+ * What this window last put on the clipboard, the tab it came from, and per tab how many times it was
+ * pasted there (the cascade). Text from elsewhere starts a fresh record.
+ */
+let clip: { text: string; from: string; pastes: Map<string, number> } | null = null;
+
+/** Cmd+C / Cmd+X: the selected elements (with descendants and the connections between them) as JSON text. */
+export async function copySelection(cut = false, id = useTabs.getState().activeId): Promise<void> {
+  const t = tabState(id);
+  if (!t?.selection.entities.length) return;
+  const text = JSON.stringify(copyElements(t.doc, t.selection.entities));
+  // In its own tab a copy pastes 20 px off; a cut's first paste lands where the elements were.
+  clip = { text, from: id, pastes: new Map([[id, cut ? -1 : 0]]) };
+  try {
+    await api().invoke('clipboard:write', text);
+  } catch (e) {
+    return toast(`Copy failed: ${ipcMessage(e)}`);
+  }
+  if (cut && tabState(id)?.doc === t.doc) {
+    docApi(id).commit(deleteElements(t.doc, t.selection.entities, [])); // only what was copied
+    docApi(id).select({ entities: [], connections: [] });
+  }
+}
+
+/** Cmd+V: paste copied elements into the tab where it was pressed, with fresh ids, one undo step. */
+export async function pasteClipboard(id = useTabs.getState().activeId): Promise<void> {
+  let text: string;
+  try {
+    text = await api().invoke('clipboard:read');
+  } catch {
+    return;
+  }
+  const fragment = fragmentFromText(text);
+  const t = tabState(id);
+  if (!fragment || !t) return; // plain text, or the tab closed meanwhile
+  if (clip?.text !== text) clip = { text, from: '', pastes: new Map() };
+  const memory = clip;
+  const n = (memory.pastes.get(id) ?? -1) + 1;
+  // Group membership only makes sense in the document the elements came from.
+  const { doc, newIds } = pasteElements(t.doc, fragment, n * PASTE_STEP, n * PASTE_STEP, memory.from === id);
+  const v = await validate(doc);
+  if (!v.ok) return toast(`Could not paste: ${v.errors[0]?.message ?? 'not a valid diagram'}`);
+  if (tabState(id)?.doc !== t.doc) return toast('Paste skipped: the diagram changed.');
+  memory.pastes.set(id, n);
+  docApi(id).commit(doc);
+  docApi(id).select({ entities: newIds, connections: [] });
 }
 
 export function duplicateSelection(): void {

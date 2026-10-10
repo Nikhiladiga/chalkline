@@ -57,6 +57,7 @@ describe('IPC payload validation', () => {
         'export:png.doc', // a diagram rendered offscreen, never a path
         'export:save.content', // export text written to the dialog's pick
         'export:save.name', // only a dialog default; main keeps its basename
+        'clipboard:write', // diagram JSON put on the system clipboard; never a path
       ].sort(),
     );
   });
@@ -70,6 +71,13 @@ describe('IPC payload validation', () => {
     expect(parseArgs('project:scan', scan)).toEqual(scan);
     expect(() => parseArgs('project:scan', { ...scan, projectId: '/etc' })).toThrow();
     expect(() => parseArgs('project:scan', { ...scan, maxChars: 9999999 })).toThrow();
+  });
+
+  it('bounds clipboard writes and takes no clipboard read argument', () => {
+    expect(parseArgs('clipboard:write', '{"entities":[]}')).toBe('{"entities":[]}');
+    expect(() => parseArgs('clipboard:write', 'x'.repeat(10_000_001))).toThrow();
+    expect(() => parseArgs('clipboard:write', 42)).toThrow();
+    expect(() => parseArgs('clipboard:read', 'path')).toThrow();
   });
 
   it('rejects an unknown export kind', () => {

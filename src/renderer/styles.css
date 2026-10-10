@@ -1073,7 +1073,8 @@ body {
   box-shadow: 0 0 0 2px var(--line);
 }
 .link-svg,
-.conn-svg {
+.conn-svg,
+.preview-svg {
   position: absolute;
   left: 0;
   top: 0;
@@ -1090,6 +1091,42 @@ body {
 .conn-hit.sel {
   stroke: color-mix(in srgb, var(--line) 45%, transparent);
   stroke-width: 6px;
+}
+.conn-hit-label {
+  fill: transparent;
+  pointer-events: all;
+  cursor: pointer;
+}
+/* Drag preview: a straight stand-in for each connection with one moving end (dragPreview.ts). */
+.preview-line {
+  stroke: var(--line);
+  stroke-linecap: round;
+}
+.resize-preview {
+  position: absolute;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  pointer-events: none;
+  z-index: 5;
+}
+/* Reconnect handles on the ends of a selected connection. */
+.conn-end {
+  position: absolute;
+  z-index: 5;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--s4);
+  cursor: move;
+  touch-action: none;
+}
+.conn-end:hover,
+.conn-end:focus-visible {
+  background: var(--line);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--line) 25%, transparent);
 }
 .guide {
   position: absolute;
@@ -1119,6 +1156,22 @@ body {
     sans-serif;
   resize: none;
   outline: none;
+}
+.arrange {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-1);
+}
+
+.label-edit {
+  min-width: 160px;
+  min-height: 0;
+  transform: translate(-50%, -50%);
+  text-align: center;
 }
 .empty {
   position: absolute;

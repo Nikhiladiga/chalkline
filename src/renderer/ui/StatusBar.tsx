@@ -7,7 +7,12 @@ import { useUi } from './uiStore';
 const SHORTCUTS: [string, string][] = [
   ['Undo', `${mod}Z`],
   ['Redo', `${mod}⇧Z`],
+  ['Copy / cut / paste', `${mod}C / ${mod}X / ${mod}V`],
   ['Duplicate selection', `${mod}D`],
+  ['Drop a copy while dragging', isMac ? '⌥-drag' : 'Alt-drag'],
+  ['Drag without snapping', isMac ? '⌘-drag' : 'Ctrl-drag'],
+  ['Move along one axis', isMac ? '⇧-drag' : 'Shift-drag'],
+  ['Reconnect a line', 'Drag its end handle'],
   ['Select all', `${mod}A`],
   ['Delete selection', '⌫'],
   ['Nudge selection (Shift for 10px)', 'Arrow keys'],
@@ -21,8 +26,8 @@ const SHORTCUTS: [string, string][] = [
   ['Go to tab 1–8 / last tab', `${mod}1–8 / ${mod}9`],
   ['Generate or apply from the prompt', `${mod}↵`],
   ['Pan', 'Space-drag'],
-  ['Zoom', `${mod}-scroll`],
-  ['Edit text', 'Double-click'],
+  ['Zoom', isMac ? '⌘-scroll' : 'Ctrl-scroll'],
+  ['Edit text or a line label', 'Double-click / F2 / ↵'],
   ['Show shortcuts', '?'],
 ];
 

@@ -7,7 +7,7 @@ import names from '../../../icons/names.json';
 import type { Box, Doc } from '../engine/types';
 import { fixIcons } from './iconFix';
 import { fitContainers, mergePositions, placeNew } from './merge';
-import { docFromJson, extractJson, toSplit } from './parse';
+import { docFromJson, extractJson, fragmentFromText, MAX_FRAGMENT, toSplit } from './parse';
 import { type AiDeps, runAi } from './pipeline';
 import { buildMessages, FEW_SHOT, iconSubset, systemPrompt } from './prompt';
 import { stripForModel } from './strip';
@@ -117,6 +117,84 @@ describe('fixIcons', () => {
 
   it('leaves hopeless names for the placeholder', () => {
     expect(fixIcons(doc('zzqqxxy'), names, aliases).doc.entities[0]!.icon).toBe('zzqqxxy');
+  });
+});
+
+describe('fixIcons caption pass', () => {
+  const icon = (icon: string, text: string, id = 'a'): Doc => ({
+    entities: [{ tag: 'Icon', id, x: 0, y: 0, icon, texts: [{ text }] }],
+    connections: [],
+  });
+  const pick = (d: Doc, keep?: Doc) => fixIcons(d, names, aliases, keep).doc.entities[0]!.icon;
+
+  it('lets a caption that names a product replace a generic pick', () => {
+    expect(fixIcons(icon('bell', 'Sentry'), names, aliases)).toMatchObject({
+      doc: { entities: [{ icon: 'sentry' }] },
+      fixes: ['bell → sentry'],
+    });
+    expect(pick(icon('alert-triangle', 'Sentry'))).toBe('sentry');
+    expect(pick(icon('database', 'Postgres'))).toBe('postgres');
+    expect(pick(icon('database', 'PostgreSQL'))).toBe('postgres');
+    expect(pick(icon('database', 'Redis'))).toBe('redis');
+    expect(pick(icon('zap', 'Kafka'))).toBe('kafka');
+  });
+
+  it('never overrides a specific pick, or maps concepts and non-products', () => {
+    expect(pick(icon('aws-lambda', 'Node'))).toBe('aws-lambda');
+    expect(pick(icon('aws-lambda', 'Sentry'))).toBe('aws-lambda');
+    expect(pick(icon('mysql', 'Postgres'))).toBe('mysql');
+    expect(pick(icon('github', 'GitLab'))).toBe('github');
+    expect(pick(icon('react', 'Node'))).toBe('react');
+    expect(pick(icon('settings', 'Cleanup Jobs'))).toBe('settings');
+    expect(pick(icon('bell', 'Alert service'))).toBe('bell');
+    expect(pick(icon('bell', 'Database'))).toBe('bell');
+    expect(pick(icon('database', 'Cache'))).toBe('database');
+    expect(pick(icon('bell', 'Sentri'))).toBe('bell');
+  });
+
+  it('fixes Group title icons from the title text', () => {
+    const d: Doc = {
+      entities: [{ tag: 'Group', id: 'g', x: 0, y: 0, title: { text: 'Kafka', icon: 'layers' } }],
+      connections: [],
+    };
+    expect((fixIcons(d, names, aliases).doc.entities[0]!.title as any).icon).toBe('kafka');
+  });
+
+  it('leaves icons the user already had in an edit', () => {
+    const mine = icon('bell', 'Sentry', 'alerts');
+    expect(pick(mine, mine)).toBe('bell');
+    expect(pick(icon('bell', 'Sentry', 'alerts'), icon('server', 'Sentry', 'alerts'))).toBe('sentry');
+  });
+});
+
+describe('fragmentFromText', () => {
+  it('accepts a diagram fragment and rejects anything else', () => {
+    const frag = { entities: [{ tag: 'Icon', id: 'a', x: 1, y: 2 }], connections: [{ from: 'a', to: 'a' }] };
+    expect(fragmentFromText(JSON.stringify(frag))).toEqual(frag);
+    for (const text of [
+      'hello',
+      '[]',
+      '{}',
+      '{"entities":[]}',
+      '{"entities":[{"id":"a","x":0,"y":0}]}',
+      'null',
+    ])
+      expect(fragmentFromText(text)).toBeNull();
+  });
+});
+
+describe('fragmentFromText limits', () => {
+  const frag = (n: number) =>
+    JSON.stringify({
+      entities: Array.from({ length: n }, (_, i) => ({ tag: 'Icon', id: `a${i}`, x: 0, y: 0 })),
+      connections: [],
+    });
+  it('enforces the element cap and rejects oversized text fast', () => {
+    expect(fragmentFromText(frag(MAX_FRAGMENT))).not.toBeNull();
+    expect(fragmentFromText(frag(MAX_FRAGMENT + 1))).toBeNull();
+    const t0 = performance.now();
+    expect(fragmentFromText('x'.repeat(10_000_001))).toBeNull();
+    expect(performance.now() - t0).toBeLessThan(100);
   });
 });
 
@@ -293,6 +371,24 @@ describe('runAi', () => {
     };
     return { d, calls, stages };
   };
+
+  it("gives a captioned product its own icon, but keeps the user's icon in an edit", async () => {
+    const reply = JSON.stringify({
+      entities: [{ tag: 'Icon', id: 'errors', x: 40, y: 40, icon: 'bell', texts: [{ text: 'Sentry' }] }],
+      connections: [],
+    });
+    const gen = await runAi(deps([reply]).d, {
+      mode: 'generate',
+      prompt: 'monitoring',
+      current: { entities: [], connections: [] },
+      allowMove: true,
+    });
+    expect(gen.ok && gen.doc.entities[0]!.icon).toBe('sentry');
+    expect(gen.ok && gen.fixes).toContain('bell → sentry');
+    const current = JSON.parse(reply);
+    const edit = await runAi(deps([reply]).d, { mode: 'edit', prompt: 'keep it', current, allowMove: true });
+    expect(edit.ok && edit.doc.entities[0]!.icon).toBe('bell');
+  });
 
   it('repairs an invalid reply by sending the issues back', async () => {
     const { d, calls, stages } = deps([bad, good]);
