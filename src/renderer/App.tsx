@@ -77,7 +77,13 @@ function useShortcuts(): void {
       const k = e.key.toLowerCase();
       if (mod && k === 'z') store[e.shiftKey ? 'redo' : 'undo']();
       else if (mod && k === 'y') store.redo();
-      else if (mod && (k === 'c' || k === 'x') && store.selection.entities.length)
+      // Highlighted page text (e.g. an AI message) keeps the native copy, even with elements selected.
+      else if (
+        mod &&
+        (k === 'c' || k === 'x') &&
+        store.selection.entities.length &&
+        !getSelection()?.toString()
+      )
         void copySelection(k === 'x');
       else if (mod && k === 'v') {
         if (!e.repeat) void pasteClipboard();

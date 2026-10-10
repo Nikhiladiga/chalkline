@@ -70,6 +70,15 @@ test('copy and paste: fresh ids, a 20 px cascade, connections between copies, on
   await page.keyboard.press(`${mod}+c`);
   await page.keyboard.press(`${mod}+v`);
   await expect.poll(async () => (await docOf(page)).connections).toContainEqual({ from: 'a-3', to: 'b-2' });
+  // Highlighted page text wins over the selected elements: ⌘C copies the text, ⌘X cuts nothing.
+  const count = (await ids(page)).length;
+  await page.evaluate(() => getSelection()!.selectAllChildren(document.querySelector('.status span')!));
+  await page.keyboard.press(`${mod}+c`);
+  await expect.poll(clipboardText).toBe('Valid');
+  await page.keyboard.press(`${mod}+x`);
+  await page.keyboard.press(`${mod}+c`); // a round trip, so the cut's (absent) effect has landed
+  await expect.poll(clipboardText).toBe('Valid');
+  expect((await ids(page)).length).toBe(count);
 });
 
 test('cut pastes back in place; another tab gets the original coordinates; a paste stays in its tab', async () => {
