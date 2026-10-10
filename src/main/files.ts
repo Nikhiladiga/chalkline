@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, normalize } from 'node:path';
 import { app, type BrowserWindow, dialog } from 'electron';
-import type { OpenedFile } from '../shared/ipc';
-import { allowedSave, chosenKey, outsideAppData } from './savePaths';
+import type { OpenedFile, SavedFile } from '../shared/ipc';
+import { allowedSave, chosenKey, isSafePath, outsideAppData } from './savePaths';
 
 const userFile = (name: string) => join(app.getPath('userData'), name);
 const FILTERS = [{ name: 'Diagram', extensions: ['json'] }];
@@ -19,21 +19,90 @@ async function atomicWrite(path: string, content: string | Uint8Array, mode = 0o
   }
 }
 
-/** Documents the user picked in a native Open/Save dialog: the only paths `file:save` may overwrite silently. */
+/**
+ * Threat model: the renderer may be compromised, so a path it names is only a request. Main reads only files
+ * the user once picked in a native dialog (`known-files.json`) and writes only to this session's dialog picks.
+ *
+ * Documents the user picked in a native Open/Save dialog this session: the only paths `file:save` may
+ * overwrite silently.
+ */
 const chosen = new Set<string>();
-const choose = async (path: string) => chosen.add(await chosenKey(path));
+
+// A renderer path is only resolved on disk if its text matches a dialog pick, so it can never steer main's
+// realpath through a link to a network path. Case-folded where the filesystem ignores case.
+const text = (path: string) =>
+  process.platform === 'linux' ? normalize(path) : normalize(path).toLowerCase();
+
+/**
+ * `known-files.json`: keys of files the user picked in a native Open or Save dialog, most recent first.
+ * Only main writes it, from dialog picks, never with a path the renderer sent, so crash recovery may re-read these.
+ */
+const KNOWN_MAX = 400; // two entries per pick: the path text and its real key
+let knownP: Promise<string[]> | undefined;
+let knownQueue: Promise<unknown> = Promise.resolve();
+
+// One shared load: a reopen reading the file can never overwrite a list `choose` just extended.
+// Only a missing or corrupt file reads as empty; any other read error is retried on the next call, so a
+// transient failure (EACCES, EMFILE) can never let `choose` overwrite the list with just its own pick.
+function loadKnown(): Promise<string[]> {
+  if (knownP) return knownP;
+  const p: Promise<string[]> = readFile(userFile('known-files.json'), 'utf8')
+    .then((text) => {
+      const v = JSON.parse(text);
+      return Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string') : [];
+    })
+    .catch((e) => {
+      if (e instanceof SyntaxError || (e as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
+      if (knownP === p) knownP = undefined;
+      throw e;
+    });
+  knownP = p;
+  return p;
+}
+
+/** Record a dialog-chosen path: allowed to save silently now, and to reopen after a crash. */
+async function choose(path: string): Promise<void> {
+  const key = await chosenKey(path);
+  const typed = text(path);
+  chosen.add(key).add(typed);
+  // Never rejects: a bookkeeping failure must not fail an open or save.
+  knownQueue = knownQueue
+    .then(async () => {
+      // ponytail: LRU cap; a stale key only re-allows reopening a file the user once chose in a dialog.
+      const list = [...new Set([typed, key, ...(await loadKnown())])].slice(0, KNOWN_MAX);
+      knownP = Promise.resolve(list);
+      await atomicWrite(userFile('known-files.json'), JSON.stringify(list));
+    })
+    .catch(() => {});
+  await knownQueue;
+}
+
+/**
+ * Crash recovery: re-read a file, but only one the user picked in an Open/Save dialog and never one in the
+ * app data folder; else null. Read only: its first save goes through the Save dialog again.
+ */
+export async function reopen(path: string): Promise<OpenedFile | null> {
+  if (!isSafePath(path)) return null;
+  await knownQueue;
+  if (!(await loadKnown().catch((): string[] => [])).includes(text(path))) return null;
+  const real = await outsideAppData(path, app.getPath('userData'));
+  const key = real && (await chosenKey(real).catch(() => null));
+  if (!real || !key || !(await loadKnown().catch((): string[] => [])).includes(key)) return null;
+  const content = await readFile(real, 'utf8').catch(() => null);
+  return content === null ? null : { path, content, key };
+}
 
 async function openPath(path: string): Promise<OpenedFile> {
   const content = await readFile(path, 'utf8');
   app.addRecentDocument(path);
-  return { path, content };
+  return { path, content, key: await chosenKey(path) };
 }
 
 export async function openDialog(win: BrowserWindow): Promise<OpenedFile | null> {
   const r = await dialog.showOpenDialog(win, { filters: FILTERS, properties: ['openFile'] });
   if (r.canceled || !r.filePaths[0]) return null;
   const opened = await openPath(r.filePaths[0]);
-  await choose(opened.path);
+  if (await outsideAppData(opened.path, app.getPath('userData'))) await choose(opened.path);
   return opened;
 }
 
@@ -49,19 +118,26 @@ async function askSavePath(win: BrowserWindow, name: string, ext: string): Promi
 }
 
 /** The renderer only names a path; main writes there only if the user chose it, else asks with the Save dialog. */
-export async function save(win: BrowserWindow, path: string | null, content: string): Promise<string | null> {
+export async function save(
+  win: BrowserWindow,
+  path: string | null,
+  content: string,
+): Promise<SavedFile | null> {
   const userData = app.getPath('userData');
-  let target = path && (await allowedSave(path, chosen, userData));
+  let target =
+    path && isSafePath(path) && chosen.has(text(path)) && (await allowedSave(path, chosen, userData));
   if (!path || !target) {
     path = await askSavePath(win, 'diagram', 'json');
     if (!path) return null;
+    const refused = new Error('Diagrams cannot be saved inside the Chalkline app data folder.');
+    if (!(await outsideAppData(path, userData))) throw refused;
     await choose(path);
     target = await allowedSave(path, chosen, userData);
-    if (!target) throw new Error('Diagrams cannot be saved inside the Chalkline app data folder.');
+    if (!target) throw refused;
   }
   await atomicWrite(target, content);
   app.addRecentDocument(path);
-  return path;
+  return { path, key: await chosenKey(target) };
 }
 
 /** Export to wherever the user picks, except the app data folder; written atomically. */

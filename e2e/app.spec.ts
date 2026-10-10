@@ -201,7 +201,7 @@ test('generate → edit → drag → connect → save/reopen → export PNG and 
   );
   await page.evaluate(async () => {
     const f = await window.api.invoke('file:open');
-    (window as any).__dg.actions.loadText(f.content, f.path);
+    (window as any).__dg.actions.openInTab(f.content, f.path, f.key);
   });
   expect(await docOf(page)).toEqual(doc);
   await settle(page);

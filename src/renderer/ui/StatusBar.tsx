@@ -1,6 +1,6 @@
 import { useDoc } from '../doc/store';
 import { Menu } from './Menu';
-import { mod } from './platform';
+import { isMac, mod } from './platform';
 import { useUi } from './uiStore';
 
 // Labels must never be exactly "Fit": three e2e specs click getByText('Fit', { exact: true }).
@@ -15,6 +15,10 @@ const SHORTCUTS: [string, string][] = [
   ['Toggle the left pane', '['],
   ['Toggle the details pane', ']'],
   ['Open settings', `${mod},`],
+  ['New tab', `${mod}T`],
+  ['Close tab', `${mod}W`],
+  ['Next / previous tab', isMac ? '⌃Tab / ⌃⇧Tab' : 'Ctrl+Tab / Ctrl+Shift+Tab'],
+  ['Go to tab 1–8 / last tab', `${mod}1–8 / ${mod}9`],
   ['Generate or apply from the prompt', `${mod}↵`],
   ['Pan', 'Space-drag'],
   ['Zoom', `${mod}-scroll`],

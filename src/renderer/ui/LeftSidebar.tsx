@@ -1,3 +1,4 @@
+import { useTabs } from '../doc/store';
 import { CodePane } from './CodePane';
 import { IconPalette } from './IconPalette';
 import { PaneToggle } from './PaneToggle';
@@ -6,6 +7,7 @@ import { useUi } from './uiStore';
 export function LeftSidebar() {
   const open = useUi((s) => s.showCode);
   const mode = useUi((s) => s.leftMode);
+  const tabId = useTabs((s) => s.activeId);
   return (
     <section className="pane left" aria-label="Editor">
       <div className="pane-head" hidden={!open}>
@@ -58,7 +60,8 @@ export function LeftSidebar() {
         aria-labelledby="editor-tab-code"
         hidden={!open || mode !== 'code'}
       >
-        <CodePane active={open && mode === 'code'} />
+        {/* One editor per visible tab: CodeMirror's own undo history must never cross tabs. */}
+        <CodePane key={tabId} active={open && mode === 'code'} />
       </div>
       {!open && <PaneToggle side="left" open={false} />}
     </section>

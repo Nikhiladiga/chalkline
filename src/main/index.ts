@@ -64,7 +64,7 @@ function createWindow(): BrowserWindow {
       buttons: ['Discard changes', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
-      message: 'You have unsaved changes.',
+      message: 'You have unsaved changes or an AI run in progress.',
     });
     e.preventDefault();
     if (choice === 0) {
@@ -74,6 +74,7 @@ function createWindow(): BrowserWindow {
         .then(() => {
           discarding = false;
           dirty = false;
+          for (const ac of aborts.values()) ac.abort(); // stop running AI work before the window goes
           win.close();
         })
         .catch((error: Error) => {
@@ -111,6 +112,7 @@ const aborts = new Map<string, AbortController>();
 const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electron.WebContents) => unknown } =
   {
     'file:open': (_a, win) => files.openDialog(win),
+    'file:reopen': (path) => files.reopen(path),
     'file:save': (a, win) => files.save(win, a.path, a.content),
     'recovery:write': (content) => files.writeRecovery(content),
     'recovery:read': () => files.readRecovery(),
@@ -134,10 +136,17 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
       try {
         // Second gate: a projectId only works when Deep scan is on for a CLI provider.
         const cwd = a.projectId ? deepCwd(s, projectPath(a.projectId)) : undefined;
-        return await chat(s, getKey(), a, (text) => sender.send('llm:chunk', { id: a.id, text }), ac.signal, {
-          cwd,
-          onProgress: (text) => !sender.isDestroyed() && sender.send('llm:progress', { id: a.id, text }),
-        });
+        return await chat(
+          s,
+          getKey(),
+          a,
+          (text) => !sender.isDestroyed() && sender.send('llm:chunk', { id: a.id, text }),
+          ac.signal,
+          {
+            cwd,
+            onProgress: (text) => !sender.isDestroyed() && sender.send('llm:progress', { id: a.id, text }),
+          },
+        );
       } catch (e) {
         throw new Error(friendlyError(e, s));
       } finally {
@@ -176,22 +185,46 @@ function menu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New', accelerator: 'CmdOrCtrl+N', click: send('new') },
-        { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: send('open') },
+        { id: 'new', label: 'New', accelerator: 'CmdOrCtrl+N', click: send('new') },
+        { id: 'new-tab', label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: send('newTab') },
+        { id: 'open', label: 'Open…', accelerator: 'CmdOrCtrl+O', click: send('open') },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: send('saveAs') },
         { type: 'separator' },
         { label: 'Export PNG…', accelerator: 'CmdOrCtrl+E', click: send('exportPng') },
         { label: 'Export SVG…', accelerator: 'CmdOrCtrl+Shift+E', click: send('exportSvg') },
         { type: 'separator' },
-        { role: process.platform === 'darwin' ? 'close' : 'quit' },
+        { id: 'close-tab', label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: send('closeTab') },
+        process.platform === 'darwin'
+          ? { id: 'close-window', role: 'close', label: 'Close Window', accelerator: 'CmdOrCtrl+Shift+W' }
+          : { role: 'quit' },
       ],
     },
     // Undo/redo live in the renderer (canvas vs code editor decide), so only clipboard roles here.
     { label: 'Edit', submenu: [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     {
       label: 'View',
-      submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { role: 'togglefullscreen' }],
+      submenu: [
+        // Listed for discoverability; the renderer handles these keys, so they are not registered here.
+        {
+          id: 'next-tab',
+          label: 'Next Tab',
+          accelerator: 'Ctrl+Tab',
+          registerAccelerator: false,
+          click: send('nextTab'),
+        },
+        {
+          id: 'prev-tab',
+          label: 'Previous Tab',
+          accelerator: 'Ctrl+Shift+Tab',
+          registerAccelerator: false,
+          click: send('prevTab'),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { role: 'togglefullscreen' },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

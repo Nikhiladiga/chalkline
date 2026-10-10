@@ -7,7 +7,7 @@ import names from '../../../icons/names.json';
 import type { Box, Doc } from '../engine/types';
 import { fixIcons } from './iconFix';
 import { fitContainers, mergePositions, placeNew } from './merge';
-import { extractJson, toSplit } from './parse';
+import { docFromJson, extractJson, toSplit } from './parse';
 import { type AiDeps, runAi } from './pipeline';
 import { buildMessages, FEW_SHOT, iconSubset, systemPrompt } from './prompt';
 import { stripForModel } from './strip';
@@ -605,5 +605,29 @@ describe('runAi', () => {
     expect(calls[1]!.at(-2)!.content).toHaveLength(100_000);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.draft!.length).toBeGreaterThan(150_000);
+  });
+});
+
+describe('docFromJson', () => {
+  it('reads a diagram file: split form plus a string title only', () => {
+    expect(
+      docFromJson({
+        title: 'T',
+        elements: [
+          { tag: 'Shape', id: 'a' },
+          { from: 'a', to: 'a' },
+        ],
+      }),
+    ).toEqual({
+      title: 'T',
+      entities: [{ tag: 'Shape', id: 'a' }],
+      connections: [{ from: 'a', to: 'a' }],
+    });
+    expect(docFromJson({ title: 3, entities: [], connections: [] })).toEqual({
+      entities: [],
+      connections: [],
+    });
+    expect(() => docFromJson(5)).toThrow('Not a diagram file.');
+    expect(() => docFromJson(null)).toThrow('Not a diagram file.');
   });
 });

@@ -96,14 +96,12 @@ async function lint(view: EditorView, text: string): Promise<void> {
       typeof (parsed as Doc).title === 'string' ? { title: (parsed as Doc).title, ...doc } : doc;
     const store = useDoc.getState();
     store.acceptCodeDraft(withTitle, text, revision);
-    if (useUi.getState().draft !== null) useUi.getState().set({ draft: null });
   }
 }
 
 export function CodePane({ active = true }: { active?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const draft = useUi((s) => s.draft);
   const uiTheme = useUi((s) => s.theme);
   const codeDraft = useDoc((s) => s.codeDraft);
 
@@ -130,6 +128,9 @@ export function CodePane({ active = true }: { active?: boolean }) {
       ],
     });
     viewRef.current = view;
+    // A tab coming back with an unfinished draft shows its diagnostics again (and accepts it if now valid).
+    const pending = useDoc.getState().codeDraft;
+    if (pending !== null) void lint(view, pending);
 
     const sync = (text: string) => {
       const cur = view.state.doc.toString();
@@ -149,7 +150,6 @@ export function CodePane({ active = true }: { active?: boolean }) {
         }
         return;
       }
-      if (useUi.getState().draft !== null) return;
       if (s.doc === prev.doc && s.codeDraft === prev.codeDraft && s.session === prev.session) return;
       // Skip when the editor already holds this document (the edit came from here).
       try {
@@ -159,23 +159,12 @@ export function CodePane({ active = true }: { active?: boolean }) {
       sync(stringify(s.doc));
       view.dispatch(setDiagnostics(view.state, []));
     });
-    (view as any).syncText = sync;
     return () => {
       unsub();
       clearTimeout(timer);
       view.destroy();
     };
   }, []);
-
-  useEffect(() => {
-    const view = viewRef.current as any;
-    if (!view) return;
-    if (draft !== null) {
-      useDoc.getState().setCodeDraft(draft);
-      view.syncText(draft);
-      void lint(view, draft);
-    } else view.syncText(useDoc.getState().codeDraft ?? stringify(useDoc.getState().doc));
-  }, [draft]);
 
   useEffect(() => {
     if (active) viewRef.current?.requestMeasure();
@@ -192,14 +181,7 @@ export function CodePane({ active = true }: { active?: boolean }) {
       {codeDraft !== null && (
         <div className="draft-bar">
           <span className="grow">Code draft. Fix errors before saving, or discard it.</span>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              useUi.getState().set({ draft: null });
-              useDoc.getState().discardCodeDraft();
-            }}
-          >
+          <button type="button" className="btn" onClick={() => useDoc.getState().discardCodeDraft()}>
             Discard
           </button>
         </div>

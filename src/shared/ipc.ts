@@ -56,6 +56,8 @@ export type ChatMsg = z.infer<typeof ChatMsg>;
 /** Every invoke channel and the zod schema of its single argument. */
 export const channels = {
   'file:open': z.undefined(),
+  /** Re-read a file chosen earlier in an Open/Save dialog (crash recovery); null if unknown or unreadable. */
+  'file:reopen': z.string(),
   'file:save': z.object({ path: z.string().nullable(), content: z.string() }),
   'recovery:write': z.string(),
   'recovery:read': z.undefined(),
@@ -103,7 +105,12 @@ export function parseArgs<C extends Channel>(channel: C, arg: unknown): Args<C> 
 export interface OpenedFile {
   path: string;
   content: string;
+  /** Main's identity for the file (realpath, case-folded on macOS/Windows): the same file opens once. */
+  key: string;
 }
+
+/** Where `file:save` wrote: the path and its key, so the renderer can tell which open tab is that file. */
+export type SavedFile = Omit<OpenedFile, 'content'>;
 
 /** The `window.api` surface the preload exposes. */
 export interface Api {

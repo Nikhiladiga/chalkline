@@ -202,7 +202,7 @@ test('a long file name keeps the unsaved dot visible', async () => {
       dirty: true,
     }),
   );
-  const name = page.locator('.file-name');
+  const name = page.getByRole('tablist', { name: 'Open diagrams' }).getByRole('tab', { selected: true });
   const dot = name.locator('.dirty-dot');
   await expect(dot).toBeVisible();
   await expect(name).toContainText('edited');

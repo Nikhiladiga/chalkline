@@ -13,6 +13,7 @@ import {
 } from './icons';
 import { Menu } from './Menu';
 import { isMac, mod } from './platform';
+import { TabStrip } from './TabStrip';
 
 const ctl = isMac ? 'Meta' : 'Control';
 
@@ -45,15 +46,12 @@ function BrandMark() {
 }
 
 export function Toolbar() {
-  const filePath = useDoc((s) => s.filePath);
-  const dirty = useDoc((s) => s.dirty);
   const canUndo = useDoc((s) => s.past.length > 0);
   const canRedo = useDoc((s) => s.future.length > 0);
   const showAi = useUi((s) => s.showAi);
   const set = useUi((s) => s.set);
   const theme = useUi((s) => s.theme);
   const [transparent, setTransparent] = useState(false);
-  const name = filePath?.split(/[\\/]/).pop() ?? 'Untitled';
 
   return (
     <header className={`toolbar${isMac ? ' mac' : ''}`}>
@@ -61,14 +59,7 @@ export function Toolbar() {
         <BrandMark />
         Chalkline
       </div>
-      <span className="file-name" title={filePath ?? undefined}>
-        <span className="file-title">{name}</span>
-        {dirty && (
-          <span className="dirty-dot">
-            <span className="sr-only"> — edited</span>
-          </span>
-        )}
-      </span>
+      <TabStrip />
       <div className="sep" />
       <button
         type="button"
@@ -105,7 +96,6 @@ export function Toolbar() {
         <IconLayout />
         Auto-layout
       </button>
-      <div className="spacer" />
       <Menu label="Export" icon={<IconExport />} testId="export-menu">
         {(close) => {
           const run = (fn: () => unknown) => () => {
