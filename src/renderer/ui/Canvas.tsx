@@ -7,19 +7,21 @@ import {
   getPrimaryText,
   reparent,
   resizeEntity,
+  selectionRoots,
   setPrimaryText,
   snap,
   withDescendants,
 } from '../doc/ops';
-import { useDoc } from '../doc/store';
+import { docApi, tabState, useDoc, useTabs } from '../doc/store';
 import { nearestPort, type Port, portPoint } from '../engine/ports';
 import { groundOf } from '../engine/theme';
 import { type Box, type Doc, SHEET_PAD } from '../engine/types';
 import { insertIconAt } from './actions';
 import { ConnectionPorts } from './ConnectionPorts';
+import { clearPreview, showPreview } from './dragPreview';
 import { ICON_MIME } from './iconCatalog';
 import { IconMinus, IconPlus } from './icons';
-import { easeView, requestFit, useUi } from './uiStore';
+import { easeView, type RenderInfo, requestFit, useUi } from './uiStore';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -29,13 +31,20 @@ type Gesture =
   | { kind: 'pan'; sx: number; sy: number; pan0: { x: number; y: number } }
   | {
       kind: 'move';
+      /** The tab the drag started in: the drop commits there. */
+      tabId: string;
       sx: number;
       sy: number;
+      /** Selection roots; their descendants move with them. */
       ids: string[];
+      /** The roots and all their descendants. */
+      moving: Set<string>;
       doc0: Doc;
-      boxes0: Record<string, Box>;
-      boxes: Record<string, Box>;
-      pan0: { x: number; y: number };
+      /** The render the drag started from: snapping and the preview read its boxes and routes. */
+      render0: RenderInfo;
+      /** Current offset in document px, snapped and rounded. */
+      dx: number;
+      dy: number;
       moved: boolean;
     }
   | { kind: 'resize'; sx: number; sy: number; id: string; doc0: Doc; box0: Box }
@@ -49,6 +58,7 @@ type Gesture =
       keyboard: boolean;
     }
   | { kind: 'marquee'; x0: number; y0: number; x: number; y: number; base: string[] };
+type MoveGesture = Extract<Gesture, { kind: 'move' }>;
 
 /** Containment depth, for paint/hit order: containers under their members. */
 function depthOf(doc: Doc, id: string): number {
@@ -101,6 +111,15 @@ export function Canvas() {
   const [, force] = useState(0);
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([]);
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  const overlay = useRef<HTMLDivElement>(null);
+  const lines = useRef<SVGSVGElement>(null);
+  /** A committed drop whose render has not landed yet: its preview stays up until then. */
+  const settle = useRef<{
+    render: RenderInfo | null;
+    errors: unknown;
+    pan: { x: number; y: number } | null;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   // The engine mounts a fresh #eraser-scene per render; adopt it.
   useLayoutEffect(() => {
@@ -108,6 +127,38 @@ export function Canvas() {
       sceneHost.current.replaceChildren(render.scene);
     }
   }, [render]);
+
+  const previewTarget = (g: MoveGesture) => {
+    const r = useUi.getState().render ?? g.render0;
+    return {
+      scene: r.scene,
+      overlay: overlay.current,
+      lines: lines.current,
+      doc: g.doc0,
+      connectionIds: r.connectionIds,
+      geometry: r.connections,
+      zoom: useUi.getState().zoom,
+    };
+  };
+  const endPreview = () => {
+    clearPreview(useUi.getState().render?.scene ?? null, overlay.current, lines.current);
+    setDragging(false);
+  };
+
+  // A drop keeps its preview until its own render lands; otherwise the element would jump back for the
+  // length of that render. A render that lands mid-drag gets the preview redrawn on its new scene.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the helpers only read refs and stores.
+  useLayoutEffect(() => {
+    const s = settle.current;
+    if (s && (render !== s.render || errors !== s.errors)) {
+      settle.current = null;
+      if (s.pan) useUi.getState().set({ pan: s.pan });
+      endPreview();
+    }
+    const g = gesture.current;
+    if (g?.kind === 'move' && g.moved && render)
+      showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: false });
+  }, [render, errors]);
 
   const toDoc = useCallback((clientX: number, clientY: number) => {
     const rect = view.current!.getBoundingClientRect();
@@ -202,7 +253,34 @@ export function Canvas() {
     force((n) => n + 1);
   };
 
+  /** Commit a move as one undo step; the preview stays until this drop's render lands. */
+  const drop = (g: MoveGesture) => {
+    const t = tabState(g.tabId);
+    // Nothing moved, or the document changed under the drag (an AI result): keep the document as it is.
+    if (!t || t.doc !== g.doc0 || (!g.dx && !g.dy)) return endPreview();
+    const { doc: moved, offset } = dragEntities(g.doc0, g.ids, g.dx, g.dy);
+    const boxes = Object.fromEntries(
+      Object.entries(g.render0.boxes).map(([id, b]) => {
+        const k = g.moving.has(id) ? 1 : 0;
+        return [id, { ...b, x: b.x + offset.x + k * g.dx, y: b.y + offset.y + k * g.dy }];
+      }),
+    );
+    // Membership changes on drop: each root joins the smallest container under its centre, or the root.
+    let d = moved;
+    for (const id of g.ids) d = reparent(d, id, boxes);
+    const ui = useUi.getState();
+    settle.current = {
+      render: ui.render,
+      errors: ui.errors,
+      // A drop past x/y = 0 shifts the whole document; pan by the same amount once its render lands.
+      pan:
+        offset.x || offset.y ? { x: ui.pan.x - offset.x * ui.zoom, y: ui.pan.y - offset.y * ui.zoom } : null,
+    };
+    docApi(g.tabId).commit(fitContainers(d, boxes));
+  };
+
   // One window-level move/up pair drives every gesture.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the helpers only read refs and stores.
   useEffect(() => {
     const move = (e: PointerEvent) => {
       const g = gesture.current;
@@ -214,51 +292,33 @@ export function Canvas() {
         let dx = (e.clientX - g.sx) / z;
         let dy = (e.clientY - g.sy) / z;
         if (!g.moved && Math.hypot(dx, dy) < 3 / z) return;
+        if (!g.moved) setDragging(true);
         g.moved = true;
-        const moving = withDescendants(g.doc0, g.ids);
-        const mine = g.ids.map((id) => g.boxes0[id]).filter((b): b is Box => !!b);
+        const boxes0 = g.render0.boxes;
+        const mine = g.ids.map((id) => boxes0[id]).filter((b): b is Box => !!b);
         let guides: { x?: number; y?: number }[] = [];
         if (mine.length && !e.altKey) {
-          const x = Math.min(...mine.map((b) => b.x)) + dx;
-          const y = Math.min(...mine.map((b) => b.y)) + dy;
+          const left = Math.min(...mine.map((b) => b.x));
+          const top = Math.min(...mine.map((b) => b.y));
           const bounds = {
-            x,
-            y,
-            width: Math.max(...mine.map((b) => b.x + b.width)) - Math.min(...mine.map((b) => b.x)),
-            height: Math.max(...mine.map((b) => b.y + b.height)) - Math.min(...mine.map((b) => b.y)),
+            x: left + dx,
+            y: top + dy,
+            width: Math.max(...mine.map((b) => b.x + b.width)) - left,
+            height: Math.max(...mine.map((b) => b.y + b.height)) - top,
           };
-          const others = Object.entries(g.boxes0)
-            .filter(([id]) => !moving.has(id))
+          const others = Object.entries(boxes0)
+            .filter(([id]) => !g.moving.has(id))
             .map(([, b]) => b);
           const s = snap(bounds, others, 6 / z);
           dx += s.dx;
           dy += s.dy;
           guides = s.guides;
         }
-        dx = Math.round(dx);
-        dy = Math.round(dy);
-        const { doc: moved, offset } = dragEntities(g.doc0, g.ids, dx, dy);
-        set({ pan: { x: g.pan0.x - offset.x * z, y: g.pan0.y - offset.y * z } });
-        setGuides(
-          guides.map((guide) => ({
-            ...(guide.x !== undefined ? { x: guide.x + offset.x } : {}),
-            ...(guide.y !== undefined ? { y: guide.y + offset.y } : {}),
-          })),
-        );
-        g.boxes = Object.fromEntries(
-          Object.entries(g.boxes0).map(([id, b]) => [
-            id,
-            {
-              ...b,
-              x: b.x + offset.x + (moving.has(id) ? dx : 0),
-              y: b.y + offset.y + (moving.has(id) ? dy : 0),
-            },
-          ]),
-        );
-        // Reparent during the drag so the old container does not grow around an escaping child.
-        let d = moved;
-        for (const id of g.ids) d = reparent(d, id, g.boxes);
-        useDoc.getState().replace(d);
+        g.dx = Math.round(dx);
+        g.dy = Math.round(dy);
+        setGuides(guides);
+        // No document change and no engine render per move: only the preview moves (dragPreview.ts).
+        showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: false });
       } else if (g.kind === 'resize') {
         const dx = (e.clientX - g.sx) / z;
         const dy = (e.clientY - g.sy) / z;
@@ -304,10 +364,7 @@ export function Canvas() {
       if (!g) return;
       const store = useDoc.getState();
       if (g.kind === 'move') {
-        if (g.moved) {
-          store.replace(fitContainers(store.doc, g.boxes));
-        }
-        store.endGesture();
+        if (g.moved) drop(g);
       } else if (g.kind === 'resize') {
         store.endGesture();
       } else if (g.kind === 'link') {
@@ -328,12 +385,20 @@ export function Canvas() {
       gesture.current = null;
       setGuides([]);
       setDropActive(false);
-      if (g?.kind === 'move' || g?.kind === 'resize') {
+      if (g?.kind === 'move') endPreview();
+      if (g?.kind === 'resize') {
         useDoc.getState().replace(g.doc0);
         useDoc.setState({ gestureStart: null });
-        if (g.kind === 'move') useUi.getState().set({ pan: g.pan0 });
       }
       if (g) force((n) => n + 1);
+    };
+    // Leaving the window or the tab also ends a drop's wait: apply its pan now, so the tab's saved view is right.
+    const blur = () => {
+      const s = settle.current;
+      settle.current = null;
+      if (s?.pan) useUi.getState().set({ pan: s.pan });
+      if (s) endPreview();
+      cancel();
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') cancel();
@@ -342,14 +407,14 @@ export function Canvas() {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', cancel);
-    window.addEventListener('blur', cancel);
+    window.addEventListener('blur', blur);
     window.addEventListener('keydown', key);
     window.addEventListener('dragend', dragEnd);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
-      window.removeEventListener('blur', cancel);
+      window.removeEventListener('blur', blur);
       window.removeEventListener('keydown', key);
       window.removeEventListener('dragend', dragEnd);
     };
@@ -371,19 +436,21 @@ export function Canvas() {
       store.select({ entities: ids, connections: [] });
     }
     const r = useUi.getState().render;
-    if (!r) return;
+    // While a drop is still rendering, a press selects but does not start another move.
+    if (!r || settle.current) return;
     // Move only selection roots: a selected child of a selected group moves with the group.
-    const roots = ids.filter((x) => !ids.some((o) => o !== x && withDescendants(store.doc, [o]).has(x)));
-    store.beginGesture();
+    const roots = selectionRoots(store.doc, ids);
     gesture.current = {
       kind: 'move',
+      tabId: useTabs.getState().activeId,
       sx: e.clientX,
       sy: e.clientY,
       ids: roots,
+      moving: withDescendants(store.doc, roots),
       doc0: store.doc,
-      boxes0: r.boxes,
-      boxes: r.boxes,
-      pan0: useUi.getState().pan,
+      render0: r,
+      dx: 0,
+      dy: 0,
       moved: false,
     };
   };
@@ -539,7 +606,7 @@ export function Canvas() {
           </div>
         )}
         {render && (
-          <div className="overlay">
+          <div className="overlay" ref={overlay}>
             {order.map((e) => {
               const b = render.boxes[e.id];
               if (!b) return null;
@@ -582,7 +649,8 @@ export function Canvas() {
                 );
               })}
             </svg>
-            {singleBox && !editing && (
+            <svg className="preview-svg" ref={lines} width="1" height="1" aria-hidden="true" />
+            {singleBox && !editing && !dragging && (
               <>
                 <div
                   className="handle"
@@ -610,6 +678,7 @@ export function Canvas() {
               </>
             )}
             {!editing &&
+              !dragging &&
               order
                 .filter((e) => e.tag === 'Icon')
                 .map((e) => {

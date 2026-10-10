@@ -28,6 +28,11 @@ export function withDescendants(doc: Doc, ids: string[]): Set<string> {
   return set;
 }
 
+/** The ids not inside another listed id: what a move or an align acts on (descendants follow). */
+export function selectionRoots(doc: Doc, ids: string[]): string[] {
+  return ids.filter((x) => !ids.some((o) => o !== x && descendants(doc, o).includes(x)));
+}
+
 /** Authored routes pin a connection's path; drop them so the router re-routes after a move. */
 function dropRoutes(connections: Connection[], moved: Set<string>): void {
   for (const c of connections) {

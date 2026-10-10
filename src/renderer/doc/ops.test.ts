@@ -12,6 +12,7 @@ import {
   insertIcon,
   moveEntities,
   reparent,
+  selectionRoots,
   setPrimaryText,
   setProp,
   snap,
@@ -315,5 +316,12 @@ describe('snap', () => {
       dy: 0,
       guides: [],
     });
+  });
+});
+
+describe('selectionRoots', () => {
+  it('drops ids that sit inside another selected id', () => {
+    expect(selectionRoots(doc(), ['vpc', 'api', 'db', 'web'])).toEqual(['vpc', 'web']);
+    expect(selectionRoots(doc(), ['sub', 'api'])).toEqual(['sub', 'api']);
   });
 });

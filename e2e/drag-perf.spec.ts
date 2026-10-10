@@ -108,3 +108,51 @@ test('a large diagram renders in under 300 ms with routes as clean as the unboun
   console.log(`route cuts: bounded ${bounded}, unbounded ${unbounded}`);
   expect(bounded).toBeLessThanOrEqual(unbounded);
 });
+
+test('dragging in a large diagram previews without rendering and settles in one fast render', async () => {
+  const page = await openLarge();
+  await page.evaluate(() => {
+    const P = (window as any).__perf;
+    // Main-thread time from each pointermove to the next frame: what a user feels as drag lag.
+    window.addEventListener(
+      'pointermove',
+      (e) => {
+        const t0 = e.timeStamp;
+        requestAnimationFrame(() => P.lat.push(performance.now() - t0));
+      },
+      true,
+    );
+  });
+  const hit = page.locator('.hit[data-id="node-20"]');
+  const box = (await hit.boundingBox())!;
+  const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
+  const zoom: number = await page.evaluate(() => (window as any).__dg.ui.getState().zoom);
+  const xOf = () =>
+    page.evaluate(
+      () => (window as any).__dg.doc.getState().doc.entities.find((e: any) => e.id === 'node-20').x as number,
+    );
+  const x0 = await xOf();
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 30; i++) {
+    await page.mouse.move(cx + i * 6, cy + i * 3);
+    await page.waitForTimeout(16);
+  }
+  const during = await page.evaluate(() => (window as any).__perf);
+  expect(during.runs).toBe(0); // no engine render while dragging
+  expect(Math.abs((await hit.boundingBox())!.x - (box.x + 180))).toBeLessThan(8); // the preview follows
+  await expect(page.locator('.preview-line').first()).toBeAttached(); // incident lines are stand-ins
+  console.log(
+    `move→frame ms: p50 ${pct(during.lat, 0.5).toFixed(1)}, p90 ${pct(during.lat, 0.9).toFixed(1)}`,
+  );
+  expect(pct(during.lat, 0.5)).toBeLessThan(16);
+  expect(pct(during.lat, 0.9)).toBeLessThan(33);
+  await page.mouse.up();
+  await page.waitForFunction(() => (window as any).__perf.landed.length > 0, null, { timeout: 10_000 });
+  const dropMs: number = await page.evaluate(() => (window as any).__perf.landed[0]);
+  console.log(`drop render ms: ${dropMs}`);
+  expect(dropMs).toBeLessThan(300);
+  expect(Math.abs((await xOf()) - x0 - 180 / zoom)).toBeLessThanOrEqual(Math.ceil(6 / zoom) + 1);
+  await expect(page.locator('[data-preview], .preview-line')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__dg.doc.getState().past.length)).toBe(1);
+});

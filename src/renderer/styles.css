@@ -1073,7 +1073,8 @@ body {
   box-shadow: 0 0 0 2px var(--line);
 }
 .link-svg,
-.conn-svg {
+.conn-svg,
+.preview-svg {
   position: absolute;
   left: 0;
   top: 0;
@@ -1090,6 +1091,11 @@ body {
 .conn-hit.sel {
   stroke: color-mix(in srgb, var(--line) 45%, transparent);
   stroke-width: 6px;
+}
+/* Drag preview: a straight stand-in for each connection with one moving end (dragPreview.ts). */
+.preview-line {
+  stroke: var(--line);
+  stroke-linecap: round;
 }
 .guide {
   position: absolute;
