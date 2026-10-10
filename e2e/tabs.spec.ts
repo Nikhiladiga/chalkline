@@ -71,6 +71,19 @@ test('the strip shows each document as a tab titled by its file name', async () 
   await page.evaluate((d) => (window as any).__dg.doc.getState().commit(d), SOLO);
   await expect(activeTab(page)).toContainText('edited');
   await expect(activeTab(page).locator('.dirty-dot')).toBeVisible();
+  // Tabs and + are no-drag; empty strip space still drags the window.
+  for (const sel of ['.tab-new', '.doc-tab', '.tab-main', '.tab-close'])
+    expect(
+      await page
+        .locator(sel)
+        .first()
+        .evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-app-region')),
+    ).toBe('no-drag');
+  expect(
+    await page
+      .locator('.tabstrip')
+      .evaluate((el) => getComputedStyle(el).getPropertyValue('-webkit-app-region')),
+  ).toBe('drag');
   if (process.platform === 'darwin') {
     // The traffic lights keep their inset.
     expect((await tabs(page).first().boundingBox())!.x).toBeGreaterThanOrEqual(84);
@@ -172,4 +185,41 @@ test('closing a dirty tab asks first, and closing the last tab leaves a fresh Un
   await expect(tabs(page)).toHaveText(['Untitled']);
   expect(await page.evaluate(() => (window as any).__dg.tabs.getState().activeId)).not.toBe(before);
   expect(await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+});
+
+test('titles show in full while there is room', async () => {
+  const page = await open();
+  await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 800));
+  await load(page, DOC, '/tmp/Payments Flow.json');
+  await newTabButton(page).click();
+  await load(page, DOC, '/tmp/Auth Service.json');
+  await newTabButton(page).click();
+  await expect(tabs(page)).toHaveText(['Payments Flow', 'Auth Service', 'Untitled']);
+  const cut = await page
+    .locator('.tab-title')
+    .evaluateAll((els) => els.map((el) => el.scrollWidth > el.clientWidth));
+  expect(cut).toEqual([false, false, false]);
+  // After a click switch, focus stays on the clicked tab.
+  await tabs(page).first().click();
+  await expect(tabs(page).first()).toBeFocused();
+});
+
+test('many tabs scroll the strip and never push the toolbar or canvas off-screen', async () => {
+  const page = await open();
+  await app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1100, 700));
+  for (let i = 0; i < 11; i++) await newTabButton(page).click();
+  await expect(tabs(page)).toHaveCount(12);
+  const m = await page.evaluate(() => {
+    const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+    const tabsEl = document.querySelector('.tabs') as HTMLElement;
+    return {
+      w: window.innerWidth,
+      settings: r('[aria-label="Settings"]').right,
+      canvas: r('.canvas').right,
+      scrolls: tabsEl.scrollWidth > tabsEl.clientWidth,
+    };
+  });
+  expect(m.settings).toBeLessThanOrEqual(m.w);
+  expect(m.canvas).toBeLessThanOrEqual(m.w);
+  expect(m.scrolls).toBe(true);
 });

@@ -151,15 +151,12 @@ export function App() {
   return (
     <div className={`app${testMode ? ' test-mode' : ''}`} data-theme={theme}>
       <Toolbar />
-      <main
-        id="doc-panel"
-        role="tabpanel"
-        aria-labelledby={`doc-tab-${activeId}`}
-        className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}
-      >
-        <LeftSidebar />
-        <Canvas />
-        <DetailsPane />
+      <main className={`workspace${showCode ? '' : ' no-code'}${showAi ? '' : ' no-ai'}`}>
+        <div id="doc-panel" role="tabpanel" aria-labelledby={`doc-tab-${activeId}`} className="tabpanel">
+          <LeftSidebar />
+          <Canvas />
+          <DetailsPane />
+        </div>
         {toastMsg && (
           <div className="toast" role="status">
             {toastMsg}

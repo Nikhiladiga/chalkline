@@ -49,7 +49,10 @@ function DocTab({ id, active }: { id: string; active: boolean }) {
         aria-controls="doc-panel"
         tabIndex={active ? 0 : -1}
         title={path ?? title}
-        onClick={() => switchTab(id)}
+        onClick={(e) => {
+          switchTab(id);
+          e.currentTarget.focus(); // switching blurs the field being left; keep focus on the tab
+        }}
         onMouseDown={(e) => {
           if (e.button === 1) e.preventDefault(); // no autoscroll cursor
         }}

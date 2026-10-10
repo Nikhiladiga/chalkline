@@ -62,6 +62,7 @@ body {
   position: fixed;
   inset: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* a wide toolbar must never widen the window grid */
   grid-template-rows: 48px 1fr 28px;
   font: var(--fw-regular) var(--fs-md) / 1.45 var(--ui);
   letter-spacing: -0.05px;
@@ -237,7 +238,8 @@ body {
 .doc-tab {
   display: flex;
   align-items: center;
-  flex: 0 1 200px;
+  flex: 0 1 240px;
+  width: 240px; /* definite size: the strip sizes to n x 240, then tabs shrink evenly to the minimum */
   min-width: 96px;
   height: var(--control-h);
   border-radius: var(--r-sm);
@@ -313,6 +315,12 @@ body {
 }
 .tab-new {
   flex: none;
+}
+.tabstrip > .tab-new {
+  -webkit-app-region: no-drag;
+}
+.tabpanel {
+  display: contents;
 }
 .dirty-dot {
   flex: none;
