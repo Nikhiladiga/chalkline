@@ -103,7 +103,7 @@ export interface OpenedFile {
 /** The `window.api` surface the preload exposes. */
 export interface Api {
   invoke<C extends Channel>(channel: C, arg?: Args<C>): Promise<any>;
-  on(event: 'llm:chunk' | 'menu' | 'export:render', cb: (payload: any) => void): () => void;
+  on(event: 'llm:chunk' | 'llm:progress' | 'menu' | 'export:render', cb: (payload: any) => void): () => void;
   /** Export window → main: the rendered scene's rect (or an error). */
   exportReady(payload: { width: number; height: number } | { error: string }): void;
 }

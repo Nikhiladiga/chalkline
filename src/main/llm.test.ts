@@ -210,6 +210,18 @@ process.stdin.on('end', () => {
     out({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' });
     return;
   }
+  if (mode === 'deep') {
+    const ev = (event) => out({ type: 'stream_event', event });
+    const file = process.cwd() + '/src/app.ts';
+    ev({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'Read' } });
+    ev({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: JSON.stringify({ file_path: file }) } });
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: file } }] }, parent_tool_use_id: null });
+    out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: 'File is in a directory that is denied by your permission settings.' }] } });
+    ev({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'StructuredOutput' } });
+    ev({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{"entities":[],"connections":[]}' } });
+    out({ type: 'result', subtype: 'success', is_error: false, structured_output: { entities: [], connections: [] } });
+    return;
+  }
   const delta = (partial_json) => out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json } } });
   delta('{"entities":[],');
   delta('"connections":[]}');
@@ -384,6 +396,26 @@ const withMode = async (mode: string, fn: () => Promise<void>) => {
 };
 
 describe('Claude Code deep scan', () => {
+  it('reports tool use as progress and counts only the diagram toward the chars', async () => {
+    const { bin } = fakeClaude();
+    const root = project();
+    const seen: string[] = [];
+    const steps: string[] = [];
+    await withMode('deep', async () => {
+      const text = await chat(
+        cli(bin, { deepScan: true }),
+        undefined,
+        { messages: conversation, schema: { type: 'object' } },
+        (t) => seen.push(t),
+        new AbortController().signal,
+        { cwd: root, onProgress: (t) => steps.push(t) },
+      );
+      expect(JSON.parse(text)).toEqual({ entities: [], connections: [] });
+    });
+    expect(steps).toEqual(['Reading src/app.ts', 'Skipped a protected file']);
+    expect(seen.join('')).toBe('{"entities":[],"connections":[]}');
+  });
+
   it('keeps the non-deep argv byte-for-byte unchanged', async () => {
     const { bin, log } = fakeClaude();
     await chat(

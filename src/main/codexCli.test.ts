@@ -37,6 +37,7 @@ process.stdin.on('end', () => {
   if (${JSON.stringify(mode)} === 'hang') return setInterval(() => {}, 1000);
   if (${JSON.stringify(mode)} === 'error') { process.stderr.write('Please run codex login'); process.exit(1); }
   if (${JSON.stringify(mode)} === 'old') { process.stderr.write("error: unexpected argument '-C' found"); process.exit(2); }
+  if (${JSON.stringify(mode)} === 'deep') process.stdout.write(JSON.stringify({type: 'item.started', item: {id: 'item_1', type: 'command_execution', command: 'bash -lc ls', status: 'in_progress'}}) + '\\n');
   const event = JSON.stringify({type: 'item.completed', item: {type: 'agent_message', text: '{"entities":[]}'}});
   process.stdout.write(event.slice(0, 20));
   setTimeout(() => process.stdout.write(event.slice(20) + '\\n' + JSON.stringify({type: 'turn.completed'})), 10);
@@ -240,4 +241,18 @@ it('stops a deep Codex run at the wall clock', async () => {
   } finally {
     deepLimits.wallMs = 15 * 60_000;
   }
+});
+
+it('reports Codex commands as progress in deep mode', async () => {
+  const { s } = fake('deep');
+  const steps: string[] = [];
+  await chat(
+    { ...s, deepScan: true },
+    undefined,
+    { messages: [{ role: 'user', content: 'Map it' }] },
+    () => {},
+    new AbortController().signal,
+    { cwd: project(), onProgress: (t) => steps.push(t) },
+  );
+  expect(steps).toEqual(['Running ls']);
 });

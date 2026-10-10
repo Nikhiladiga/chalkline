@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../shared/ipc';
 import * as cli from './claudeCli';
+import { codexProgress } from './codexCli';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -94,4 +95,72 @@ it('only accepts a configured CLI path that names the claude/codex executable', 
   expect(() => cli.checkCliPath(join(dir, 'claude-evil'), 'claude')).toThrow(wrong);
   expect(() => cli.checkCliPath(join(dir, 'claude'), 'codex')).toThrow(wrong);
   expect(() => cli.checkCliPath(join(dir, 'sub', 'codex'), 'codex')).toThrow(wrong);
+});
+
+const use = (name: string, input: object) => ({
+  type: 'assistant',
+  message: { content: [{ type: 'tool_use', id: 't1', name, input }] },
+  parent_tool_use_id: null,
+});
+const result = (content: unknown) => ({
+  type: 'user',
+  message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content }] },
+});
+
+it('turns Claude tool calls into short progress lines relative to the folder', () => {
+  const p = (ev: unknown) => cli.claudeProgress(ev, '/repo');
+  expect(p(use('Read', { file_path: '/repo/src/app.ts' }))).toBe('Reading src/app.ts');
+  expect(p(use('Read', { file_path: '/etc/passwd' }))).toBe('Reading passwd');
+  expect(p(use('Grep', { pattern: 'zebra', output_mode: 'content' }))).toBe('Searching for "zebra"');
+  expect(p(use('Grep', { pattern: 'zebra', path: '/repo/src' }))).toBe('Searching for "zebra" in src');
+  expect(p(use('Glob', { pattern: '**/*.ts' }))).toBe('Listing **/*.ts');
+  expect(p(use('StructuredOutput', { entities: [] }))).toBe('Writing diagram');
+  expect(
+    p({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'Read', input: { file_path: '/repo/a.ts' } },
+          { type: 'tool_use', name: 'Read', input: { file_path: '/repo/b.ts' } },
+        ],
+      },
+    }),
+  ).toBe('Reading a.ts · Reading b.ts');
+  expect(p(use('Read', { file_path: `/repo/${'d/'.repeat(60)}x.ts` }))).toHaveLength(80);
+  expect(p({ type: 'rate_limit_event' })).toBeNull();
+  expect(p({ type: 'system', subtype: 'thinking_tokens' })).toBeNull();
+});
+
+it('reports denied and out-of-folder reads as a skipped protected file', () => {
+  const p = (ev: unknown) => cli.claudeProgress(ev, '/repo');
+  expect(p(result('File is in a directory that is denied by your permission settings.'))).toBe(
+    'Skipped a protected file',
+  );
+  expect(
+    p(
+      result([
+        {
+          type: 'text',
+          text: '/etc/hosts is outside /repo; --restricted confines the file tools to the working directory.',
+        },
+      ]),
+    ),
+  ).toBe('Skipped a protected file');
+  expect(p(result('ENOENT: no such file'))).toBeNull();
+});
+
+it('turns a Codex command into a progress line', () => {
+  expect(
+    codexProgress({
+      type: 'item.started',
+      item: { id: 'item_1', type: 'command_execution', command: 'bash -lc ls', status: 'in_progress' },
+    }),
+  ).toBe('Running ls');
+  expect(
+    codexProgress({
+      type: 'item.started',
+      item: { type: 'command_execution', command: "bash -lc 'rg -n route src'" },
+    }),
+  ).toBe('Running rg -n route src');
+  expect(codexProgress({ type: 'item.completed', item: { type: 'agent_message', text: '{}' } })).toBeNull();
 });

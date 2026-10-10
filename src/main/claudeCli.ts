@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, join, win32 } from 'node:path';
+import { basename, delimiter, dirname, join, relative, resolve, win32 } from 'node:path';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
 
@@ -150,6 +150,44 @@ export function transcript(messages: ChatMsg[]): string {
   return `${body}\n\nAnswer the last <user> message. The <assistant> turns show the expected output format.`;
 }
 
+/** Progress lines stay on one line of the stage indicator. */
+export const clip = (text: string) => (text.length > 80 ? `${text.slice(0, 79)}…` : text);
+const DENIED = /denied by your permission settings|outside .*--restricted/;
+
+/** One progress line for a deep-scan stream event, or null for events worth no line. */
+export function claudeProgress(ev: any, cwd: string): string | null {
+  const blocks: any[] = Array.isArray(ev?.message?.content) ? ev.message.content : [];
+  if (ev?.type === 'user') {
+    const denied = blocks.some(
+      (b) =>
+        b?.type === 'tool_result' &&
+        b.is_error &&
+        DENIED.test(typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '')),
+    );
+    return denied ? 'Skipped a protected file' : null;
+  }
+  if (ev?.type !== 'assistant') return null;
+  const rel = (p: string) => {
+    const r = relative(cwd, resolve(cwd, p));
+    return r.startsWith('..') ? basename(p) : r;
+  };
+  const steps = blocks
+    .filter((b) => b?.type === 'tool_use')
+    .map((b) => {
+      const input = b.input ?? {};
+      if (b.name === 'Read') return `Reading ${rel(String(input.file_path ?? ''))}`;
+      if (b.name === 'Grep') {
+        const where = input.path ? rel(String(input.path)) : '';
+        return `Searching for "${input.pattern}"${where ? ` in ${where}` : ''}`;
+      }
+      if (b.name === 'Glob') return `Listing ${input.pattern}`;
+      if (b.name === 'StructuredOutput') return 'Writing diagram';
+      return null;
+    })
+    .filter(Boolean);
+  return steps.length ? clip(steps.join(' · ')) : null;
+}
+
 /** Run `claude -p` once: system prompt from a file, conversation on stdin, output as stream-json. */
 export function cliChat(
   s: Settings,
@@ -241,6 +279,7 @@ export function cliChat(
     let buf = '';
     let stderr = '';
     let text = '';
+    let block = '';
     child.stdout!.setEncoding('utf8');
     child.stdout!.on('data', (chunk: string) => {
       bump();
@@ -254,7 +293,15 @@ export function cliChat(
         } catch {
           continue;
         }
-        if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta') {
+        if (deep) {
+          const step = claudeProgress(ev, deep.cwd);
+          if (step) deep.onProgress(step);
+        }
+        if (ev.type === 'stream_event' && ev.event?.type === 'content_block_start') {
+          block = ev.event.content_block?.name ?? '';
+        } else if (ev.type === 'stream_event' && ev.event?.type === 'content_block_delta') {
+          // Deep scan: tool inputs (Read paths, Grep patterns) are not diagram text.
+          if (deep && ev.event.delta?.type === 'input_json_delta' && block !== 'StructuredOutput') continue;
           const piece: string | undefined = ev.event.delta?.partial_json ?? ev.event.delta?.text;
           if (piece) {
             text += piece;

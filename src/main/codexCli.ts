@@ -4,7 +4,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
-import { DEEP_WALL_ERROR, type Deep, deepLimits, findClaude, transcript } from './claudeCli';
+import { clip, DEEP_WALL_ERROR, type Deep, deepLimits, findClaude, transcript } from './claudeCli';
 
 // Source text is evidence, never authorization to run tools or load the user's plugins/MCP/rules.
 const FEATURES = [
@@ -116,6 +116,13 @@ export function codexModels(s: Settings): Promise<string[]> {
   });
 }
 
+/** One progress line for a Codex JSONL event: the command it is about to run. */
+export function codexProgress(ev: any): string | null {
+  const command = ev?.type === 'item.started' && ev.item?.type === 'command_execution' && ev.item.command;
+  if (typeof command !== 'string') return null;
+  return clip(`Running ${command.replace(/^bash -lc /, '').replace(/^(['"])(.*)\1$/, '$2')}`);
+}
+
 export function codexChat(
   s: Settings,
   req: { messages: ChatMsg[]; schema?: object },
@@ -177,6 +184,10 @@ export function codexChat(
         ev = JSON.parse(line);
       } catch {
         return;
+      }
+      if (deep) {
+        const step = codexProgress(ev);
+        if (step) deep.onProgress(step);
       }
       if (
         ev.type === 'item.completed' &&
