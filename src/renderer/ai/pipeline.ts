@@ -30,7 +30,7 @@ export interface AiRequest {
   deep?: boolean;
   /** Provider id; only used to word the deep-scan budget. */
   provider?: string;
-  /** Folder preview text used only to choose icon sets; never sent to the model. */
+  /** Deep scan only: folder preview text used to choose icon sets; never sent to the model. */
   iconHint?: string;
 }
 
@@ -79,7 +79,7 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
     req.mode,
     req.prompt,
     req.current,
-    iconSubset(req.prompt + (req.sourceContext ?? req.iconHint ?? ''), deps.names),
+    iconSubset(req.prompt + (req.sourceContext ?? (req.deep ? req.iconHint : '') ?? ''), deps.names),
     deps.schemaOf,
     req.sourceContext,
     req.deep,

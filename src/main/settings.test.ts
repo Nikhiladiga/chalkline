@@ -1,7 +1,41 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: {}, safeStorage: {} }));
-const { normalizeSettings, keySlot, storedKey, rebindLegacyKey } = await import('./settings');
+const { normalizeSettings, keySlot, storedKey, rebindLegacyKey, deepConsent } = await import('./settings');
+
+// Final review I3: the renderer can ask, but only a native confirm in main turns Deep scan on.
+describe('Deep scan consent', () => {
+  const asked = (answer: boolean) => {
+    const calls: number[] = [];
+    return {
+      calls,
+      confirm: async () => {
+        calls.push(1);
+        return answer;
+      },
+    };
+  };
+
+  it('asks when Deep scan goes from off to on and keeps it off if declined', async () => {
+    const no = asked(false);
+    expect(await deepConsent({ deepScan: true, model: 'opus' }, false, no.confirm)).toEqual({
+      deepScan: false,
+      model: 'opus',
+    });
+    const yes = asked(true);
+    expect(await deepConsent({ deepScan: true }, false, yes.confirm)).toEqual({ deepScan: true });
+    expect(no.calls).toHaveLength(1);
+    expect(yes.calls).toHaveLength(1);
+  });
+
+  it('does not ask when Deep scan is already on, turned off or untouched', async () => {
+    const a = asked(false);
+    expect(await deepConsent({ deepScan: true }, true, a.confirm)).toEqual({ deepScan: true });
+    expect(await deepConsent({ deepScan: false }, false, a.confirm)).toEqual({ deepScan: false });
+    expect(await deepConsent({ model: 'x' }, false, a.confirm)).toEqual({ model: 'x' });
+    expect(a.calls).toHaveLength(0);
+  });
+});
 
 describe('settings normalisation', () => {
   it('migrates a stored LM Studio provider to the OpenAI-compatible API, keeping URL and model', () => {

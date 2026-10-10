@@ -110,3 +110,13 @@ export function setSettings(patch: Partial<Settings> & { apiKey?: string }): Pub
   writeFileSync(file('settings.json'), JSON.stringify(next, null, 2));
   return publicSettings();
 }
+
+/** Deep scan turns on only after a confirm in main, so a renderer alone can't enable it. Declining keeps it off. */
+export async function deepConsent<T extends Partial<Settings>>(
+  patch: T,
+  wasOn: boolean,
+  confirm: () => Promise<boolean>,
+): Promise<T> {
+  if (patch.deepScan !== true || wasOn || (await confirm())) return patch;
+  return { ...patch, deepScan: false };
+}

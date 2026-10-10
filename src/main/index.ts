@@ -6,7 +6,7 @@ import * as files from './files';
 import { handleIcons, registerIconScheme } from './icons';
 import { chat, deepCwd, friendlyError, installedHarnesses, listModels } from './llm';
 import { chooseProject, projectPath, scanSelectedProject } from './projects';
-import { getKey, getSettings, publicSettings, setSettings } from './settings';
+import { deepConsent, getKey, getSettings, publicSettings, setSettings } from './settings';
 
 // The app was called Diagrammer; keep its data folder so settings and the icon cache survive the rename.
 app.setPath('userData', process.env.DG_USER_DATA ?? join(app.getPath('appData'), 'diagrammer'));
@@ -88,6 +88,21 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
+/** Native consent for Deep scan; tests (DG_TEST) skip the dialog. */
+async function confirmDeepScan(win: BrowserWindow): Promise<boolean> {
+  if (process.env.DG_TEST) return true;
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Turn On Deep Scan', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: 'Turn on Deep scan?',
+    detail:
+      'Claude Code will read files in the code folder you choose, read-only, and send what it reads to Anthropic without redaction. Common secret files are blocked, but .gitignore is not honoured, so secrets in ordinary files can be sent. It uses your plan’s quota and can take several minutes.',
+  });
+  return response === 0;
+}
+
 const aborts = new Map<string, AbortController>();
 const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electron.WebContents) => unknown } =
   {
@@ -98,7 +113,8 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
     'recovery:clear': () => files.clearRecovery(),
     'settings:get': () => publicSettings(),
     'llm:harnesses': () => installedHarnesses(),
-    'settings:set': (patch) => setSettings(patch),
+    'settings:set': async (patch, win) =>
+      setSettings(await deepConsent(patch, getSettings().deepScan, () => confirmDeepScan(win))),
     'llm:models': async () => {
       const s = getSettings();
       try {

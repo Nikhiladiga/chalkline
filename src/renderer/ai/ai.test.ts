@@ -464,6 +464,19 @@ describe('runAi', () => {
     expect(calls[0]!.map((m) => m.content).join('\n')).not.toContain('infra/main.tf');
   });
 
+  // Final review Minor 1: Description mode keeps its icon sets even after a folder preview.
+  it('ignores the folder preview icon hint outside deep mode', async () => {
+    const { d, calls } = deps([good]);
+    await runAi(d, {
+      mode: 'generate',
+      prompt: 'x',
+      current: empty,
+      allowMove: false,
+      iconHint: 'infra/main.tf: aws lambda handler',
+    });
+    expect(calls[0]![0]!.content).not.toContain('aws-lambda');
+  });
+
   it('accepts a deep rescan that removes obsolete components', async () => {
     const current: Doc = {
       entities: ['a', 'b', 'c', 'd'].map((id, i) => ({ tag: 'Shape', id, x: i * 200, y: 0 })),

@@ -170,6 +170,8 @@ it('never shows absolute paths or "undefined" in progress', () => {
   expect(p(use('Glob', { pattern: '/repo/src/**/*.ts' }))).toBe('Listing src/**/*.ts');
   expect(p(use('Glob', { pattern: '/etc/*.conf' }))).toBe('Listing *.conf');
   expect(p(use('Grep', { path: '/repo' }))).toBe('Searching the repo');
+  expect(p(use('Grep', { pattern: '/Users/x/secret-path' }))).toBe('Searching for "secret-path"');
+  expect(p(use('Grep', { pattern: 'from /repo/src/db' }))).toBe('Searching for "from ./src/db"');
   expect(cli.claudeProgress(result({ weird: 1 }), '/repo')).toBeNull();
   expect(cli.claudeProgress(result(null), '/repo')).toBeNull();
 });

@@ -6,7 +6,7 @@ import { launch } from './launch';
 
 const SHOTS = process.env.DG_SCREENS_DIR;
 
-test('Deep scan shows only for a code folder on a CLI provider, warns harder for Codex and persists', async () => {
+test('Deep scan shows only for a code folder on Claude Code and persists', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dg-deep-ui-'));
   const ud = join(dir, 'ud');
   mkdirSync(ud);
@@ -44,15 +44,12 @@ test('Deep scan shows only for a code folder on a CLI provider, warns harder for
     await folder();
     await expect(toggle).toBeChecked();
 
+    // Codex deep scan stays hidden until its manual acceptance gate passes, even with the setting on.
     save({ provider: 'codex', model: 'default', deepScan: true });
     await page.reload();
     await folder();
-    await expect(toggle).toBeChecked();
-    await expect(toggle).toHaveAccessibleDescription(
-      "Lets Codex read this folder (read-only) and send what it reads to OpenAI. Codex can't block secret files like .env and may read files outside this folder — only use it on folders without secrets. Uses your plan's quota and takes longer.",
-    );
-    await expect(blurb).toContainText(DEEP);
-    if (SHOTS) await panel.screenshot({ path: join(SHOTS, 'deep-scan-codex.png') });
+    await expect(blurb).toContainText(EXCERPTS);
+    await expect(toggle).toHaveCount(0);
 
     // An OpenAI-compatible API preset: no CLI, so no deep scan.
     save({ provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'm', deepScan: true });
@@ -92,6 +89,7 @@ const args=process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({prompt,args,cwd:process.cwd(),pid:process.pid})+'\\n');
 const out=o=>console.log(JSON.stringify(o));
 if(args.includes('--restricted')){
+  out({type:'system',subtype:'init',cwd:process.cwd(),tools:['Glob','Grep','Read','StructuredOutput'],permissionMode:'dontAsk'});
   out({type:'assistant',message:{content:[{type:'tool_use',id:'t1',name:'Read',input:{file_path:process.cwd()+'/src/server.ts'}}]},parent_tool_use_id:null});
   if(prompt.includes('STOP_REQUEST'))return setInterval(()=>{},1000);
   return setTimeout(()=>out({type:'result',structured_output:${JSON.stringify(invalid)}}),3000);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import aliases from '../../../icons/aliases.json';
 import names from '../../../icons/names.json';
-import { isCliProvider, type PublicSettings } from '../../shared/ipc';
+import { canDeepScan, type PublicSettings } from '../../shared/ipc';
 import type { CodeProject, ProjectScan } from '../../shared/project';
 import { type AiResult, runAi } from '../ai/pipeline';
 import { useDoc } from '../doc/store';
@@ -136,7 +136,7 @@ export function AiPanel() {
       const resolver = await getResolver();
       const s = settings ?? (await window.api.invoke('settings:get'));
       checkStopped(id);
-      const deep = source === 'folder' && s.deepScan && isCliProvider(s.provider);
+      const deep = source === 'folder' && s.deepScan && canDeepScan(s.provider);
       // Deep scan: the CLI reads the folder itself, so no excerpts are sent.
       const snapshot = source === 'folder' && project && !deep ? await readProject(project, id, s) : null;
       const result = await runAi(
@@ -294,12 +294,12 @@ export function AiPanel() {
           project={project}
           scan={scan}
           busy={Boolean(running)}
-          deep={Boolean(settings?.deepScan && isCliProvider(settings.provider))}
+          deep={Boolean(settings?.deepScan && canDeepScan(settings.provider))}
           choose={() => void previewProject(true)}
           rescan={() => void previewProject(false)}
         />
       )}
-      {source === 'folder' && settings && isCliProvider(settings.provider) && (
+      {source === 'folder' && settings && canDeepScan(settings.provider) && (
         <DeepScanToggle
           provider={settings.provider}
           checked={settings.deepScan}

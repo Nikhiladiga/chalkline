@@ -9,12 +9,12 @@ import {
 } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join, win32 } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, type Settings } from '../shared/ipc';
 import { DENY_READ, deepLimits } from './claudeCli';
-import { chat, deepCwd, friendlyError, listModels } from './llm';
+import { chat, deepCwd, friendlyError, listModels, tooBroad } from './llm';
 
 let server: Server | undefined;
 afterEach(() => server?.close());
@@ -197,11 +197,21 @@ process.stdin.on('end', () => {
   fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, stdin, env: process.env, cwd: process.cwd(), system: file('--system-prompt-file'), deny: JSON.parse(file('--settings') ?? 'null') }));
   const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
   const mode = process.env.MODE || 'ok';
-  if (mode === 'hang') return setInterval(() => {}, 1000);
   if (mode.startsWith('old:')) {
     process.stderr.write("error: unknown option '" + mode.slice(4) + "'\\n");
     process.exit(1);
   }
+  // Like the real CLI, deep runs open with an init event; $INIT breaks one field of it, or drops it.
+  const init = process.env.INIT || 'ok';
+  if (argv.includes('--restricted') && init !== 'none')
+    out({
+      type: 'system',
+      subtype: 'init',
+      cwd: init === 'cwd' ? '/' : process.cwd(),
+      tools: init === 'tools' ? ['Read', 'Grep', 'Glob', 'Bash', 'StructuredOutput'] : ['Glob', 'Grep', 'Read', 'StructuredOutput'],
+      permissionMode: init === 'mode' ? 'default' : 'dontAsk',
+    });
+  if (mode === 'hang') return setInterval(() => {}, 1000);
   if (mode === 'max-turns') {
     out({ type: 'result', subtype: 'error_max_turns', is_error: true, result: null, errors: ['Reached maximum number of turns (60)'], terminal_reason: 'max_turns' });
     return;
@@ -493,7 +503,7 @@ describe('Claude Code deep scan', () => {
     expect(argv[argv.indexOf('--settings') + 1].startsWith(root)).toBe(false);
     // Review Focus 1: the spec's list stays verbatim as the prefix; case variants (case-insensitive APFS) follow.
     const SPEC =
-      `**/.env **/.env.* **/*.pem **/*.key **/*.p12 **/*.pfx **/*.jks **/*.keystore **/id_rsa* **/id_ed25519* **/id_ecdsa* **/.npmrc **/.netrc **/.pypirc **/credentials* **/secret/** **/secrets/** **/secrets.* **/service-account* **/service_account* **/*.tfstate **/*.tfstate.* **/.git/** **/.ssh/** **/.aws/** **/.gnupg/** **/.kube/** **/node_modules/** **/CLAUDE.md **/AGENTS.md **/GEMINI.md **/.cursorrules **/.claude/** **/.codex/** **/.agents/** **/.cursor/**`.split(
+      `**/.env **/.env.* **/*.pem **/*.key **/*.p12 **/*.pfx **/*.jks **/*.keystore **/id_rsa* **/id_ed25519* **/id_ecdsa* **/.npmrc **/.netrc **/.pypirc **/credentials* **/secret/** **/secrets/** **/secrets.* **/service-account* **/service_account* **/*.tfstate **/*.tfstate.* **/.git/** **/.ssh/** **/.aws/** **/.gnupg/** **/.kube/** **/node_modules/** **/CLAUDE.md **/AGENTS.md **/GEMINI.md **/.cursorrules **/.claude/** **/.codex/** **/.agents/** **/.cursor/** **/secret **/secret.* **/secrets **/.envrc **/.git-credentials **/.hg/** **/.svn/** **/.gemini/** **/.opencode/** **/.terraform/** **/SKILL.md **/copilot-instructions.md **/.windsurfrules **/.clinerules`.split(
         ' ',
       );
     expect(DENY_READ.slice(0, SPEC.length)).toEqual(SPEC);
@@ -509,6 +519,11 @@ describe('Claude Code deep scan', () => {
           '**/Secrets/**',
           '**/SECRETS/**',
           '**/.GIT/**',
+          '**/.ENVRC',
+          '**/SECRET.*',
+          '**/skill.md',
+          '**/COPILOT-INSTRUCTIONS.MD',
+          '**/.Terraform/**',
         ].map((g) => `Read(${g})`),
       ),
     );
@@ -523,6 +538,38 @@ describe('Claude Code deep scan', () => {
         'Read(**/credentials*)',
       ]),
     );
+  });
+
+  // Final review I5: an accepted-but-ignored flag must not fail open.
+  it.each([
+    ['tools', 'deep'],
+    ['mode', 'deep'],
+    ['cwd', 'deep'],
+    ['none', 'deep'],
+    ['none', 'ok'],
+  ])('aborts when the init event is %s-broken (output %s) before any tool runs', async (init, mode) => {
+    const { bin } = fakeClaude();
+    const steps: string[] = [];
+    process.env.INIT = init;
+    try {
+      await withMode(mode, () =>
+        expect(
+          chat(
+            cli(bin, { deepScan: true }),
+            undefined,
+            { messages: conversation, schema: { type: 'object' } },
+            () => {},
+            new AbortController().signal,
+            { cwd: project(), onProgress: (t) => steps.push(t) },
+          ),
+        ).rejects.toThrow(
+          "Claude Code didn't apply Deep scan restrictions; update Claude Code or turn Deep scan off.",
+        ),
+      );
+    } finally {
+      delete process.env.INIT;
+    }
+    expect(steps).toEqual([]);
   });
 
   it('explains the 60-step limit instead of a raw error_max_turns', async () => {
@@ -593,7 +640,30 @@ describe('deepCwd gate', () => {
     expect(() => deepCwd({ ...on, provider: 'lmstudio' }, root)).toThrow(/Deep scan is off/);
     expect(() => deepCwd({ ...on, provider: 'openai' }, root)).toThrow(/Deep scan is off/);
     expect(deepCwd({ ...on, provider: 'claude-code' }, root)).toBe(root);
-    expect(deepCwd({ ...on, provider: 'codex' }, root)).toBe(root);
+  });
+
+  // Final review I1: Codex deep code stays, but main refuses it until its manual gate passes.
+  it('refuses Codex until its manual acceptance gate passes', () => {
+    expect(() => deepCwd({ ...on, provider: 'codex' }, project())).toThrow(
+      "Deep scan isn't available for Codex yet. Use Claude Code, or turn Deep scan off.",
+    );
+  });
+
+  // Final review I2: --restricted only confines reads to cwd, so cwd must not be home or a root.
+  it('refuses the home folder, its ancestors and the filesystem root', () => {
+    const msg = 'Choose a project folder, not your home or a system root.';
+    for (const dir of [homedir(), dirname(homedir()), '/']) expect(() => deepCwd(on, dir)).toThrow(msg);
+    expect(deepCwd(on, project())).not.toBe(homedir());
+  });
+
+  it('spots roots and home ancestors on Windows paths too, ignoring case', () => {
+    const home = 'C:\\Users\\me';
+    for (const dir of ['C:\\', 'D:\\', 'C:\\Users', 'c:\\users\\ME', '\\\\server\\share\\'])
+      expect(tooBroad(dir, home, win32)).toBe(true);
+    for (const dir of ['C:\\Users\\me\\code\\app', 'D:\\repo', 'C:\\Users\\meta'])
+      expect(tooBroad(dir, home, win32)).toBe(false);
+    expect(tooBroad('/Users/me/..hidden', '/Users/me/..hidden/x')).toBe(true);
+    expect(tooBroad('/Users/me/app', '/Users/me')).toBe(false);
   });
 
   // Review Focus 2: symlinked, deleted or non-directory folders.

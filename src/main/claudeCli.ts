@@ -19,7 +19,8 @@ export const deepLimits = { wallMs: 15 * 60_000 };
 export const DEEP_WALL_ERROR = 'Deep scan took longer than 15 minutes and was stopped.';
 const MAX_TURNS = 60;
 const DEEP_TOOLS = 'Read,Grep,Glob';
-// Mirrors projectScan SECRET/INSTRUCTIONS/SKIP_DIRS. Read() rules also stop Grep and Glob.
+// Mirrors projectScan's SECRET/INSTRUCTIONS and the secret/agent/VCS entries of SKIP_DIRS (not .gitignore).
+// Read() rules also stop Grep and Glob.
 const SPEC_DENY = [
   '**/.env',
   '**/.env.*',
@@ -57,12 +58,26 @@ const SPEC_DENY = [
   '**/.codex/**',
   '**/.agents/**',
   '**/.cursor/**',
+  '**/secret',
+  '**/secret.*',
+  '**/secrets',
+  '**/.envrc',
+  '**/.git-credentials',
+  '**/.hg/**',
+  '**/.svn/**',
+  '**/.gemini/**',
+  '**/.opencode/**',
+  '**/.terraform/**',
+  '**/SKILL.md',
+  '**/copilot-instructions.md',
+  '**/.windsurfrules',
+  '**/.clinerules',
 ];
 // Claude Code 2.1.295 matches deny rules case-insensitively (observed from its bundled matcher, not documented);
-// we add UPPER/Capitalized variants as defense in depth in case a future version changes this.
+// we add UPPER/lower/Capitalized variants as defense in depth in case a future version changes this.
 const capitalize = (g: string) => g.replace(/[a-z]/, (c) => c.toUpperCase());
 export const DENY_READ = [
-  ...new Set([...SPEC_DENY, ...SPEC_DENY.flatMap((g) => [g.toUpperCase(), capitalize(g)])]),
+  ...new Set([...SPEC_DENY, ...SPEC_DENY.flatMap((g) => [g.toUpperCase(), g.toLowerCase(), capitalize(g)])]),
 ];
 
 export class CliMissing extends Error {
@@ -223,7 +238,7 @@ export function claudeProgress(ev: any, cwd: string): string | null {
       if (b.name === 'Grep') {
         const where = input.path ? rel(String(input.path)) : '';
         if (!input.pattern) return 'Searching the repo';
-        return `Searching for "${input.pattern}"${where ? ` in ${where}` : ''}`;
+        return `Searching for "${redactPaths(String(input.pattern), cwd)}"${where ? ` in ${where}` : ''}`;
       }
       if (b.name === 'Glob') {
         const pattern = String(input.pattern ?? '');
@@ -236,6 +251,16 @@ export function claudeProgress(ev: any, cwd: string): string | null {
     .filter(Boolean);
   return steps.length ? clip(steps.join(' · ')) : null;
 }
+
+const INIT_TOOLS = new Set(['Read', 'Grep', 'Glob', 'StructuredOutput']);
+export const DEEP_INIT_ERROR =
+  "Claude Code didn't apply Deep scan restrictions; update Claude Code or turn Deep scan off.";
+/** Deep scan: Claude's init event must confirm read-only tools, dontAsk and the folder as cwd. */
+const initApplied = (ev: any, cwd: string) =>
+  Array.isArray(ev.tools) &&
+  ev.tools.every((t: unknown) => INIT_TOOLS.has(String(t))) &&
+  ev.permissionMode === 'dontAsk' &&
+  (process.platform === 'win32' ? String(ev.cwd).toLowerCase() === cwd.toLowerCase() : ev.cwd === cwd);
 
 /** Run `claude -p` once: system prompt from a file, conversation on stdin, output as stream-json. */
 export function cliChat(
@@ -329,8 +354,11 @@ export function cliChat(
     let stderr = '';
     let text = '';
     let block = '';
+    // Deep scan: no tool may run (and no result count) until an init event confirms the restrictions.
+    let verified = false;
     child.stdout!.setEncoding('utf8');
     child.stdout!.on('data', (chunk: string) => {
+      if (settled) return;
       bump();
       buf += chunk;
       const lines = buf.split('\n');
@@ -342,6 +370,14 @@ export function cliChat(
         } catch {
           continue;
         }
+        if (deep && ev.type === 'system' && ev.subtype === 'init') {
+          if (!initApplied(ev, deep.cwd)) return finish(new Error(DEEP_INIT_ERROR));
+          verified = true;
+        }
+        const acts =
+          ['assistant', 'user', 'result'].includes(ev.type) ||
+          (ev.type === 'stream_event' && ev.event?.content_block?.type === 'tool_use');
+        if (deep && !verified && acts) return finish(new Error(DEEP_INIT_ERROR));
         if (deep) {
           const step = claudeProgress(ev, deep.cwd);
           if (step) deep.onProgress(step);

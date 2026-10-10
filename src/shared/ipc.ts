@@ -3,8 +3,13 @@ import { z } from 'zod';
 /** 'lmstudio' is read from old settings files only; main migrates it to 'openai' (an API preset now). */
 export const Provider = z.enum(['lmstudio', 'openai', 'claude-code', 'codex']);
 export type Provider = z.infer<typeof Provider>;
-/** Providers that run a local agent CLI; only these can Deep scan. */
-export const isCliProvider = (p: Provider): boolean => p === 'claude-code' || p === 'codex';
+/**
+ * Providers that can Deep scan; the UI and main both check this. Codex's deep code and tests stay, but it is
+ * hidden until the Codex gate in the deep-scan manual acceptance passes; then add 'codex' here and word the
+ * consent dialog in main/index.ts for it.
+ */
+export const DEEP_SCAN_PROVIDERS: readonly Provider[] = ['claude-code'];
+export const canDeepScan = (p: Provider): boolean => DEEP_SCAN_PROVIDERS.includes(p);
 
 export const Settings = z.object({
   provider: Provider,
