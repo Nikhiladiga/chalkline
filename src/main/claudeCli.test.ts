@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -70,4 +70,28 @@ it('discovers Windows native executables and npm wrappers using PATHEXT and inst
   );
   // npm also writes a bare POSIX shell shim beside its .cmd launcher.
   expect(paths.indexOf('C:\\tools\\codex.CMD')).toBeLessThan(paths.indexOf('C:\\tools\\codex'));
+});
+
+it('only accepts a configured CLI path that names the claude/codex executable', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chalkline-cli-path-'));
+  dirs.push(dir);
+  for (const name of ['claude', 'claude-evil', 'claude.cmd', 'codex.exe'])
+    writeFileSync(join(dir, name), '', { mode: 0o755 });
+  mkdirSync(join(dir, 'sub', 'codex'), { recursive: true });
+  const wrong = /CLI path must point to the (claude|codex) executable/;
+  expect(cli.checkCliPath(join(dir, 'claude'), 'claude')).toBe(join(dir, 'claude'));
+  expect(cli.findClaude(join(dir, 'claude'))).toBe(join(dir, 'claude'));
+  expect(cli.checkCliPath(join(dir, 'claude.cmd'), 'claude', 'win32')).toBe(join(dir, 'claude.cmd'));
+  expect(cli.checkCliPath(join(dir, 'codex.exe'), 'codex', 'win32')).toBe(join(dir, 'codex.exe'));
+  // Name is checked before the file, so a Windows path is judged on its name alone here.
+  expect(() =>
+    cli.checkCliPath('C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', 'claude', 'win32'),
+  ).toThrow(cli.CliMissing);
+  expect(() => cli.checkCliPath('C:\\Windows\\System32\\cmd.exe', 'claude', 'win32')).toThrow(wrong);
+  expect(() => cli.checkCliPath(join(dir, 'claude.cmd'), 'claude', 'darwin')).toThrow(wrong);
+  expect(() => cli.checkCliPath('/bin/sh', 'claude')).toThrow(wrong);
+  expect(() => cli.findClaude('/bin/sh', 'codex')).toThrow(wrong);
+  expect(() => cli.checkCliPath(join(dir, 'claude-evil'), 'claude')).toThrow(wrong);
+  expect(() => cli.checkCliPath(join(dir, 'claude'), 'codex')).toThrow(wrong);
+  expect(() => cli.checkCliPath(join(dir, 'sub', 'codex'), 'codex')).toThrow(wrong);
 });

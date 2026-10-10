@@ -17,7 +17,7 @@ vi.mock('electron', async () => {
   }
   return { BrowserWindow: Window, ipcMain: new EventEmitter(), ClipboardItem: class {}, clipboard: {} };
 });
-vi.mock('./files', () => ({ askSavePath: vi.fn() }));
+vi.mock('./files', () => ({ saveExport: vi.fn() }));
 
 afterEach(() => {
   vi.useRealTimers();

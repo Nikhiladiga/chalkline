@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { type Channel, parseArgs } from '../shared/ipc';
-import { exportPng, exportText } from './export';
+import { exportPng } from './export';
 import * as files from './files';
 import { handleIcons, registerIconScheme } from './icons';
 import { chat, friendlyError, installedHarnesses, listModels } from './llm';
@@ -131,7 +131,7 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
       }
     },
     'export:png': (a, win) => exportPng(win, load, prefs, a),
-    'export:save': (a, win) => exportText(win, a.kind, a.content, a.name),
+    'export:save': (a, win) => files.saveExport(win, a.name, a.kind, a.content),
     'app:dirty': (flag) => {
       dirty = flag;
     },

@@ -50,7 +50,7 @@ final class WebKitProbe: NSObject, NSApplicationDelegate, WKNavigationDelegate {
               invoke: async (channel,arg) => {
                 if(channel==='settings:get') return settings;
                 if(channel==='settings:set') return Object.assign(settings,arg);
-                if(channel==='llm:models'||channel==='llm:harnesses'||channel==='file:recent') return [];
+                if(channel==='llm:models'||channel==='llm:harnesses') return [];
                 if(channel==='llm:chat'||channel==='project:scan') throw Error('Native backend is not implemented in this feasibility probe.');
                 return null;
               }, on:()=>()=>{}, exportReady:()=>{}

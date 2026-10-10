@@ -17,9 +17,9 @@ if (plist.CFBundleShortVersionString !== pkg.version || plist.CFBundleIdentifier
 const icon = readFileSync(join(contents, 'Resources', plist.CFBundleIconFile));
 if (icon.toString('ascii', 0, 4) !== 'icns') throw new Error('Missing packaged application icon.');
 execFileSync('codesign', ['--verify', '--deep', '--strict', bundle], { stdio: 'inherit' });
-const userData = mkdtempSync(join(tmpdir(), 'chalkline-package-'));
-const env = { ...process.env, PATH: '/usr/bin:/bin', DG_TEST: '1', DG_USER_DATA: userData,
-  DG_LLM_PROVIDER: 'codex', DG_LLM_MODEL: 'default', DG_SAVE_DIR: userData };
+const dir = mkdtempSync(join(tmpdir(), 'chalkline-package-'));
+const env = { ...process.env, PATH: '/usr/bin:/bin', DG_TEST: '1', DG_USER_DATA: join(dir, 'ud'),
+  DG_LLM_PROVIDER: 'codex', DG_LLM_MODEL: 'default', DG_SAVE_DIR: dir };
 delete env.ELECTRON_RUN_AS_NODE;
 const app = await _electron.launch({ executablePath: join(contents, 'MacOS', plist.CFBundleExecutable), env });
 try {
@@ -42,11 +42,11 @@ try {
   if (errors.length) throw new Error(JSON.stringify(errors));
   await page.evaluate(async () => { await window.__dg.actions.save(); await window.__dg.actions.exportPng(1, false); await window.__dg.actions.exportSvg(); });
   for (const name of ['diagram.json', 'diagram.png', 'diagram.svg'])
-    if (!readFileSync(join(userData, name)).length) throw new Error(`Empty ${name}.`);
+    if (!readFileSync(join(dir, name)).length) throw new Error(`Empty ${name}.`);
   console.log(JSON.stringify({ ...native, bundleId: plist.CFBundleIdentifier, version: pkg.version,
     icon: plist.CFBundleIconFile, iconBytes: icon.length, minimumMacOS: plist.LSMinimumSystemVersion,
     models, renderErrors: errors.length, savePngSvg: 'passed' }, null, 2));
 } finally {
   await app.close();
-  rmSync(userData, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
 }

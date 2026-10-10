@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { app, type BrowserWindow, dialog } from 'electron';
 import type { OpenedFile } from '../shared/ipc';
-import { allowedSave, chosenKey } from './savePaths';
+import { allowedSave, chosenKey, outsideAppData } from './savePaths';
 
 const userFile = (name: string) => join(app.getPath('userData'), name);
 const FILTERS = [{ name: 'Diagram', extensions: ['json'] }];
 
 /** Write beside the destination, then atomically replace it; never truncate a user's last good file. */
-async function atomicWrite(path: string, content: string): Promise<void> {
+async function atomicWrite(path: string, content: string | Uint8Array): Promise<void> {
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(temp, content, { flag: 'wx', mode: 0o600 });
@@ -19,27 +19,13 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   }
 }
 
-async function readRecent(): Promise<string[]> {
-  try {
-    return JSON.parse(await readFile(userFile('recent.json'), 'utf8'));
-  } catch {
-    return [];
-  }
-}
-
-async function pushRecent(path: string): Promise<void> {
-  const list = [path, ...(await readRecent()).filter((p) => p !== path)].slice(0, 10);
-  await writeFile(userFile('recent.json'), JSON.stringify(list));
-  app.addRecentDocument(path);
-}
-
 /** Documents the user picked in a native Open/Save dialog: the only paths `file:save` may overwrite silently. */
 const chosen = new Set<string>();
 const choose = async (path: string) => chosen.add(await chosenKey(path));
 
 async function openPath(path: string): Promise<OpenedFile> {
   const content = await readFile(path, 'utf8');
-  await pushRecent(path);
+  app.addRecentDocument(path);
   return { path, content };
 }
 
@@ -51,11 +37,12 @@ export async function openDialog(win: BrowserWindow): Promise<OpenedFile | null>
   return opened;
 }
 
-/** Ask where to save (tests set DG_SAVE_DIR to skip the dialog). */
-export async function askSavePath(win: BrowserWindow, name: string, ext: string): Promise<string | null> {
-  if (process.env.DG_SAVE_DIR) return join(process.env.DG_SAVE_DIR, `${name}.${ext}`);
+/** Ask where to save (tests set DG_SAVE_DIR to skip the dialog). `name` is only ever a file name. */
+async function askSavePath(win: BrowserWindow, name: string, ext: string): Promise<string | null> {
+  const file = `${basename(name)}.${ext}`;
+  if (process.env.DG_SAVE_DIR) return join(process.env.DG_SAVE_DIR, file);
   const r = await dialog.showSaveDialog(win, {
-    defaultPath: `${name}.${ext}`,
+    defaultPath: file,
     filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
   });
   return r.canceled || !r.filePath ? null : r.filePath;
@@ -73,8 +60,22 @@ export async function save(win: BrowserWindow, path: string | null, content: str
     if (!target) throw new Error('Diagrams cannot be saved inside the Chalkline app data folder.');
   }
   await atomicWrite(target, content);
-  // A recent-list failure must not turn an already successful save into a failed one.
-  await pushRecent(path).catch(() => {});
+  app.addRecentDocument(path);
+  return path;
+}
+
+/** Export to wherever the user picks, except the app data folder; written atomically. */
+export async function saveExport(
+  win: BrowserWindow,
+  name: string,
+  ext: string,
+  content: string | Uint8Array,
+): Promise<string | null> {
+  const path = await askSavePath(win, name, ext);
+  if (!path) return null;
+  const target = await outsideAppData(path, app.getPath('userData'));
+  if (!target) throw new Error('Exports cannot be saved inside the Chalkline app data folder.');
+  await atomicWrite(target, content);
   return path;
 }
 

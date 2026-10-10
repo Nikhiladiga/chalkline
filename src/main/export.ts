@@ -1,6 +1,5 @@
-import { writeFile } from 'node:fs/promises';
 import { BrowserWindow, ClipboardItem, clipboard, ipcMain } from 'electron';
-import { askSavePath } from './files';
+import { saveExport } from './files';
 
 /** Loads the renderer page into a window; `hash` selects the view. */
 type Load = (win: BrowserWindow, hash: string) => void;
@@ -92,20 +91,5 @@ export async function exportPng(
     ]);
     return 'clipboard';
   }
-  const path = await askSavePath(owner, 'diagram', 'png');
-  if (!path) return null;
-  await writeFile(path, png);
-  return path;
-}
-
-export async function exportText(
-  owner: BrowserWindow,
-  kind: string,
-  content: string,
-  name: string,
-): Promise<string | null> {
-  const path = await askSavePath(owner, name, kind);
-  if (!path) return null;
-  await writeFile(path, content);
-  return path;
+  return saveExport(owner, 'diagram', 'png', png);
 }
