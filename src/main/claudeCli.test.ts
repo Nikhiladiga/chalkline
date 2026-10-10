@@ -89,6 +89,9 @@ it('only accepts a configured CLI path that names the claude/codex executable', 
     cli.checkCliPath('C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', 'claude', 'win32'),
   ).toThrow(cli.CliMissing);
   expect(() => cli.checkCliPath('C:\\Windows\\System32\\cmd.exe', 'claude', 'win32')).toThrow(wrong);
+  expect(() => cli.checkCliPath('\\\\evil\\share\\claude.exe', 'claude', 'win32')).toThrow(wrong);
+  expect(() => cli.checkCliPath('/net/evil/claude', 'claude', 'darwin')).toThrow(wrong);
+  expect(() => cli.checkCliPath('bin/claude', 'claude')).toThrow(wrong);
   expect(() => cli.checkCliPath(join(dir, 'claude.cmd'), 'claude', 'darwin')).toThrow(wrong);
   expect(() => cli.checkCliPath('/bin/sh', 'claude')).toThrow(wrong);
   expect(() => cli.findClaude('/bin/sh', 'codex')).toThrow(wrong);

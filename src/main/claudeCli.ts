@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, join, win32 } from 'node:path';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
+import { isSafePath } from './savePaths';
 
 /** Model aliases `claude --model` accepts; "default" leaves the choice to the CLI. */
 export const CLI_MODELS = ['default', 'opus', 'sonnet', 'haiku'];
@@ -124,7 +125,8 @@ export function checkCliPath(cliPath: string, binary: string, platform = process
   const path = expand(cliPath);
   const name = platform === 'win32' ? win32.basename(path).replace(/\.(exe|cmd|bat)$/i, '') : basename(path);
   const wrong = new Error(`CLI path must point to the ${binary} executable.`);
-  if (name.toLowerCase() !== binary) throw wrong;
+  // Before any fs call: a UNC or /net path would make the OS contact a remote host.
+  if (name.toLowerCase() !== binary || !isSafePath(path, platform)) throw wrong;
   if (!existsSync(path)) throw new CliMissing(cliPath, binary === 'codex' ? 'Codex' : 'Claude Code');
   if (!statSync(path).isFile()) throw wrong;
   return path;
