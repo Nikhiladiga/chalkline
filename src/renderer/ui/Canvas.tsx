@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { fitContainers } from '../ai/merge';
 import {
   CONTAINER_TAGS,
   connect,
@@ -8,11 +7,11 @@ import {
   getPrimaryText,
   pasteElements,
   reconnect,
-  reparent,
   resizeEntity,
   selectionRoots,
   setConnectionLabel,
   setPrimaryText,
+  settleMove,
   snap,
   withDescendants,
 } from '../doc/ops';
@@ -349,17 +348,7 @@ export function Canvas() {
       roots = pasted.newIds;
       for (const [from, to] of pasted.idMap) if (boxes0[from]) boxes0[to] = boxes0[from]!;
     }
-    const moving = withDescendants(base, roots);
     const { doc: moved, offset } = dragEntities(base, roots, g.dx, g.dy);
-    const boxes = Object.fromEntries(
-      Object.entries(boxes0).map(([id, b]) => {
-        const k = moving.has(id) ? 1 : 0;
-        return [id, { ...b, x: b.x + offset.x + k * g.dx, y: b.y + offset.y + k * g.dy }];
-      }),
-    );
-    // Membership changes on drop: each root joins the smallest container under its centre, or the root.
-    let d = moved;
-    for (const id of roots) d = reparent(d, id, boxes);
     const ui = useUi.getState();
     settle.current = {
       render: ui.render,
@@ -368,7 +357,8 @@ export function Canvas() {
       shift: offset.x || offset.y ? offset : null,
     };
     const api = docApi(g.tabId);
-    api.commit(fitContainers(d, boxes));
+    // Membership changes on drop: each root joins the smallest container under its centre, or the root.
+    api.commit(settleMove(base, moved, roots, boxes0));
     if (copy) api.select({ entities: roots, connections: [] });
   };
 

@@ -1,3 +1,4 @@
+import { fitContainers } from '../ai/merge';
 import type { Port } from '../engine/ports';
 import type { Box, Connection, Doc, Entity } from '../engine/types';
 
@@ -296,6 +297,33 @@ export function reparent(doc: Doc, id: string, boxes: Record<string, Box>): Doc 
   return out;
 }
 
+/**
+ * What a drop does after a move: each root that moved joins the smallest container under its centre
+ * (or the root), then containers grow to hold their children. `boxes` are the render's boxes for
+ * `before`; each follows its entity's move from `before` to `after`.
+ */
+export function settleMove(before: Doc, after: Doc, roots: string[], boxes: Record<string, Box>): Doc {
+  const was = new Map(before.entities.map((e) => [e.id, e]));
+  const delta = new Map(
+    after.entities.map((e) => [
+      e.id,
+      { x: e.x - (was.get(e.id)?.x ?? e.x), y: e.y - (was.get(e.id)?.y ?? e.y) },
+    ]),
+  );
+  const moved = Object.fromEntries(
+    Object.entries(boxes).map(([id, b]) => {
+      const d = delta.get(id) ?? { x: 0, y: 0 };
+      return [id, { ...b, x: b.x + d.x, y: b.y + d.y }];
+    }),
+  );
+  let out = after;
+  for (const id of roots) {
+    const d = delta.get(id);
+    if (d && (d.x || d.y)) out = reparent(out, id, moved);
+  }
+  return fitContainers(out, moved);
+}
+
 /** Insert a square icon centered at a canvas point, retaining valid document coordinates. */
 export function insertIcon(
   doc: Doc,
@@ -401,4 +429,83 @@ export function snap(
   if (hx) guides.push({ x: hx.at });
   if (hy) guides.push({ y: hy.at });
   return { dx: hx?.d ?? 0, dy: hy?.d ?? 0, guides };
+}
+
+export type Align = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
+
+/** Selection roots with their boxes: document x/y (never stale) and rendered width/height. */
+function rootBoxes(doc: Doc, ids: string[], boxes: Record<string, Box>): { id: string; b: Box }[] {
+  return selectionRoots(doc, ids).flatMap((id) => {
+    const e = doc.entities.find((x) => x.id === id);
+    const s = boxes[id];
+    return e && s ? [{ id, b: { x: e.x, y: e.y, width: s.width, height: s.height } }] : [];
+  });
+}
+
+/** Move each root by its own delta, then settle like a drop; `doc` itself when nothing moves. */
+function moveEach(
+  doc: Doc,
+  moves: { id: string; dx: number; dy: number }[],
+  boxes: Record<string, Box>,
+): Doc {
+  let out = doc;
+  for (const { id, dx, dy } of moves)
+    if (Math.round(dx) || Math.round(dy)) out = moveEntities(out, [id], dx, dy);
+  return out === doc
+    ? doc
+    : settleMove(
+        doc,
+        out,
+        moves.map((m) => m.id),
+        boxes,
+      );
+}
+
+/**
+ * Line up the selection roots' edges or centres with the selection's bounding box (draw.io Arrange ›
+ * Align). Coordinates are absolute, so roots in different containers align too. Needs two roots.
+ */
+export function alignEntities(doc: Doc, ids: string[], boxes: Record<string, Box>, how: Align): Doc {
+  const items = rootBoxes(doc, ids, boxes);
+  if (items.length < 2) return doc;
+  const left = Math.min(...items.map(({ b }) => b.x));
+  const right = Math.max(...items.map(({ b }) => b.x + b.width));
+  const top = Math.min(...items.map(({ b }) => b.y));
+  const bottom = Math.max(...items.map(({ b }) => b.y + b.height));
+  // The line every root's edge or centre goes to, and where that line sits on the root (0 left/top, 1 right/bottom).
+  const line = { left, center: (left + right) / 2, right, top, middle: (top + bottom) / 2, bottom }[how];
+  const f = { left: 0, center: 0.5, right: 1, top: 0, middle: 0.5, bottom: 1 }[how];
+  const across = how === 'left' || how === 'center' || how === 'right';
+  return moveEach(
+    doc,
+    items.map(({ id, b }) => ({
+      id,
+      dx: across ? line - f * b.width - b.x : 0,
+      dy: across ? 0 : line - f * b.height - b.y,
+    })),
+    boxes,
+  );
+}
+
+/** Equal gaps between the selection roots along one axis; the first and last stay put. Needs three. */
+export function distributeEntities(
+  doc: Doc,
+  ids: string[],
+  boxes: Record<string, Box>,
+  axis: 'x' | 'y',
+): Doc {
+  const len = axis === 'x' ? 'width' : 'height';
+  const items = rootBoxes(doc, ids, boxes).sort((p, q) => p.b[axis] - q.b[axis]);
+  if (items.length < 3) return doc;
+  const first = items[0]!.b;
+  const last = items.at(-1)!.b;
+  const total = items.reduce((sum, { b }) => sum + b[len], 0);
+  const gap = (last[axis] + last[len] - first[axis] - total) / (items.length - 1);
+  let at = first[axis];
+  const moves = items.map(({ id, b }) => {
+    const d = at - b[axis];
+    at += b[len] + gap;
+    return { id, dx: axis === 'x' ? d : 0, dy: axis === 'y' ? d : 0 };
+  });
+  return moveEach(doc, moves, boxes);
 }

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { Doc } from '../engine/types';
 import {
   addEntity,
+  alignEntities,
   clampDelta,
   connect,
   copyElements,
   deleteElements,
   descendants,
+  distributeEntities,
   dragEntities,
   duplicateEntities,
   getPrimaryText,
@@ -432,5 +434,107 @@ describe('reconnect', () => {
     // Moving an end to another port of the same element is a change.
     const moved = reconnect(other, 0, 'to', 'db', { fromPort: 'bottom', toPort: 'left' });
     expect(moved.connections[0]).toMatchObject({ toPort: 'left' });
+  });
+});
+
+describe('alignEntities / distributeEntities', () => {
+  const row = (): Doc => ({
+    entities: [
+      { tag: 'Icon', id: 'p', x: 100, y: 100 },
+      { tag: 'Icon', id: 'q', x: 220, y: 200 },
+      { tag: 'Icon', id: 'r', x: 600, y: 300 },
+    ],
+    connections: [],
+  });
+  // Render boxes; the ops read only their sizes, positions come from the document.
+  const boxes = {
+    p: { x: 0, y: 0, width: 50, height: 50 },
+    q: { x: 0, y: 0, width: 50, height: 50 },
+    r: { x: 0, y: 0, width: 50, height: 50 },
+  };
+  const at = (d: Doc) => d.entities.map((e) => [e.x, e.y]);
+
+  it('aligns edges and centres to the selection box', () => {
+    expect(at(alignEntities(row(), ['p', 'q', 'r'], boxes, 'left'))).toEqual([
+      [100, 100],
+      [100, 200],
+      [100, 300],
+    ]);
+    expect(at(alignEntities(row(), ['p', 'q', 'r'], boxes, 'center'))).toEqual([
+      [350, 100],
+      [350, 200],
+      [350, 300],
+    ]);
+    expect(at(alignEntities(row(), ['p', 'q', 'r'], boxes, 'bottom'))).toEqual([
+      [100, 300],
+      [220, 300],
+      [600, 300],
+    ]);
+  });
+
+  it('moves a container with its children; a container plus its own child is one root, so nothing moves', () => {
+    const sized = {
+      vpc: { x: 0, y: 0, width: 400, height: 300 },
+      api: { x: 40, y: 60, width: 48, height: 48 },
+      sub: { x: 200, y: 60, width: 150, height: 150 },
+      db: { x: 220, y: 100, width: 48, height: 48 },
+      web: { x: 500, y: 60, width: 90, height: 40 },
+    };
+    const out = alignEntities(doc(), ['vpc', 'web'], sized, 'top');
+    expect(out.entities.find((e) => e.id === 'web')!.y).toBe(0);
+    const down = alignEntities(doc(), ['vpc', 'web'], sized, 'bottom');
+    expect(at(down).slice(0, 4)).toEqual([
+      [0, 0],
+      [40, 60],
+      [200, 60],
+      [220, 100],
+    ]);
+    expect(down.entities.find((e) => e.id === 'web')!.y).toBe(260);
+    const one = doc();
+    expect(alignEntities(one, ['web'], sized, 'top')).toBe(one);
+    expect(alignEntities(one, ['vpc', 'api', 'db'], sized, 'left')).toBe(one);
+    expect(distributeEntities(one, ['vpc', 'sub', 'db', 'api'], sized, 'x')).toBe(one);
+  });
+
+  it('aligns across containers in absolute coordinates, then rehomes and grows like a drop', () => {
+    const d: Doc = {
+      entities: [
+        { tag: 'Group', id: 'g', x: 0, y: 0, width: 200, height: 200 },
+        { tag: 'Icon', id: 'k', x: 20, y: 20, containerId: 'g' },
+        { tag: 'Icon', id: 'm', x: 150, y: 300 },
+      ],
+      connections: [],
+    };
+    const sized = {
+      g: { x: 0, y: 0, width: 200, height: 200 },
+      k: { x: 20, y: 20, width: 48, height: 48 },
+      m: { x: 150, y: 300, width: 100, height: 40 },
+    };
+    // m's centre lands on g's edge: it joins g, and g grows to hold it with the 32 px drop padding.
+    const top = alignEntities(d, ['k', 'm'], sized, 'top');
+    expect(top.entities[2]).toMatchObject({ x: 150, y: 20, containerId: 'g' });
+    expect(top.entities[0]).toMatchObject({ x: 0, y: 0, width: 282, height: 200 });
+    // k's centre leaves g: it moves out to the root.
+    const right = alignEntities(d, ['k', 'm'], sized, 'right');
+    expect(right.entities[1]).toMatchObject({ x: 202, y: 20 });
+    expect(right.entities[1]!.containerId).toBeUndefined();
+  });
+
+  it('distributes with equal gaps and leaves the ends in place; needs three roots', () => {
+    expect(at(distributeEntities(row(), ['p', 'q', 'r'], boxes, 'x'))).toEqual([
+      [100, 100],
+      [350, 200],
+      [600, 300],
+    ]);
+    expect(at(distributeEntities(row(), ['r', 'q', 'p'], boxes, 'y'))).toEqual([
+      [100, 100],
+      [220, 200],
+      [600, 300],
+    ]);
+    const wide = { ...boxes, q: { x: 0, y: 0, width: 150, height: 50 } };
+    expect(at(distributeEntities(row(), ['p', 'q', 'r'], wide, 'x'))[1]).toEqual([300, 200]);
+    const two = row();
+    expect(distributeEntities(two, ['p', 'q'], boxes, 'x')).toBe(two);
+    expect(alignEntities(two, ['p', 'q', 'missing'], {}, 'left')).toBe(two);
   });
 });

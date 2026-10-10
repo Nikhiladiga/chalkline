@@ -508,3 +508,74 @@ test('label field: Enter while composing does not commit; an untouched open and 
   await expect.poll(async () => (await entity(page, 'a')).texts[0].text).toBe('甲');
   expect(await past(page)).toBe(3);
 });
+
+test('Arrange aligns and distributes the selection in one undo step and one render each', async () => {
+  const page = await open({
+    entities: [
+      { tag: 'Icon', id: 'p', icon: 'server', x: 100, y: 100, texts: [{ text: 'P' }] },
+      { tag: 'Icon', id: 'q', icon: 'server', x: 220, y: 200, texts: [{ text: 'Q' }] },
+      { tag: 'Icon', id: 'r', icon: 'server', x: 600, y: 300, texts: [{ text: 'R' }] },
+    ],
+    connections: [{ from: 'p', to: 'r' }],
+  });
+  await page.locator('.hit[data-id="p"]').click();
+  await page.locator('.hit[data-id="q"]').click({ modifiers: ['Shift'] });
+  const align = page.getByRole('button', { name: 'Align top', exact: true });
+  const spread = page.getByRole('button', { name: 'Distribute horizontally', exact: true });
+  // Two roots align but cannot distribute.
+  await expect(align).toBeVisible();
+  await expect(spread).toBeDisabled();
+  await page.locator('.hit[data-id="r"]').click({ modifiers: ['Shift'] });
+  // A selected line is ignored.
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().select({ entities: ['p', 'q', 'r'], connections: [0] }),
+  );
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__runs = 0;
+    const run = w.__eraser.run;
+    w.__eraser.run = (...a: unknown[]) => {
+      w.__runs++;
+      return run.apply(w.__eraser, a);
+    };
+  });
+  const runs = () => page.evaluate(() => (window as any).__runs as number);
+  const at = async () => (await docOf(page)).entities.map((e: any) => [e.x, e.y]);
+  await align.click();
+  await expect.poll(at).toEqual([
+    [100, 100],
+    [220, 100],
+    [600, 100],
+  ]);
+  await expect.poll(runs).toBe(1);
+  await spread.click();
+  await expect.poll(at).toEqual([
+    [100, 100],
+    [350, 100],
+    [600, 100],
+  ]);
+  await expect.poll(runs).toBe(2);
+  expect(await past(page)).toBe(2);
+  expect((await docOf(page)).connections).toEqual([{ from: 'p', to: 'r' }]);
+  await page.keyboard.press(`${mod}+z`);
+  expect(await at()).toEqual([
+    [100, 100],
+    [220, 100],
+    [600, 100],
+  ]);
+});
+
+test('Arrange is hidden for a group with its own child: they are one root', async () => {
+  const page = await open({
+    entities: [
+      { tag: 'Group', id: 'g', x: 0, y: 0, width: 300, height: 200, title: { text: 'G' } },
+      { tag: 'Icon', id: 'k', icon: 'server', x: 60, y: 60, containerId: 'g', texts: [{ text: 'K' }] },
+    ],
+    connections: [],
+  });
+  await page.evaluate(() =>
+    (window as any).__dg.doc.getState().select({ entities: ['g', 'k'], connections: [] }),
+  );
+  await expect(page.getByText('2 selected')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Align left', exact: true })).toHaveCount(0);
+});
