@@ -149,11 +149,8 @@ export function friendlyError(e: unknown, s: Settings): string {
   const code = err?.cause?.code ?? '';
   if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || /fetch failed/i.test(err?.message ?? '')) {
     const url = URL.parse(s.baseUrl);
-    if (url && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
-      if (url.port === '1234')
-        return `Can't reach LM Studio at ${s.baseUrl}. Open LM Studio → Developer tab → Start Server (or run "lms server start"), then load a model.`;
+    if (url && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
       return `Can't reach the local server at ${s.baseUrl}. Start it and load a model.`;
-    }
     return `Can't reach ${s.baseUrl}. Check the base URL in Settings and your network.`;
   }
   if (err?.status === 401 || err?.status === 403)

@@ -31,6 +31,8 @@ const radio = (checked: boolean) => ({ role: 'radio', 'aria-checked': checked, t
 export function Settings() {
   const open = useUi((s) => s.settingsOpen);
   const [s, setS] = useState<PublicSettings | null>(null);
+  // Saved keys belong to one server origin (main scopes them), so hasKey only holds for the saved URL's origin.
+  const [savedUrl, setSavedUrl] = useState('');
   const [key, setKey] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [custom, setCustom] = useState(false);
@@ -42,7 +44,10 @@ export function Settings() {
       setKey('');
       setCustom(false);
       setHarnesses(null);
-      void window.api.invoke('settings:get').then(setS);
+      void window.api.invoke('settings:get').then((v) => {
+        setS(v);
+        setSavedUrl(v.baseUrl);
+      });
       void window.api
         .invoke('llm:harnesses')
         .then(setHarnesses)
@@ -56,6 +61,7 @@ export function Settings() {
   const close = () => useUi.getState().set({ settingsOpen: false });
   const patch = (p: Partial<PublicSettings>) => setS({ ...s, ...p });
   const cli = s.provider === 'claude-code' || s.provider === 'codex';
+  const keySaved = s.hasKey && URL.parse(s.baseUrl)?.origin === URL.parse(savedUrl)?.origin;
   const preset = custom ? undefined : PRESETS.find((p) => p.url === s.baseUrl.replace(/\/+$/, ''));
   const setHarness = (provider: Harness) =>
     patch({ provider, baseUrl: DEFAULT_URLS[provider], model: 'default', cliPath: '' });
@@ -70,10 +76,11 @@ export function Settings() {
     const { hasKey: _h, provider, ...rest } = s;
     const saved = await window.api.invoke('settings:set', {
       ...rest,
-      provider: provider === 'lmstudio' ? 'openai' : provider,
+      provider: provider === 'lmstudio' ? 'openai' : provider, // type-only: main never returns 'lmstudio'
       ...(key ? { apiKey: key } : {}),
     });
     setS(saved);
+    setSavedUrl(saved.baseUrl);
     setKey('');
     return saved as PublicSettings;
   };
@@ -268,7 +275,7 @@ export function Settings() {
                   <span>
                     API key{' '}
                     <span className="field-hint">
-                      {s.hasKey ? 'saved, leave empty to keep it' : 'optional'}
+                      {keySaved ? 'saved, leave empty to keep it' : 'optional'}
                     </span>
                   </span>
                   <input
@@ -277,7 +284,7 @@ export function Settings() {
                     autoComplete="off"
                     value={key}
                     onChange={(e) => setKey(e.target.value)}
-                    placeholder={s.hasKey ? '••••••••' : 'Not needed for local servers'}
+                    placeholder={keySaved ? '••••••••' : 'Not needed for local servers'}
                   />
                 </label>
               </>

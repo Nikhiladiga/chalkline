@@ -36,9 +36,50 @@ export function getSettings(): Settings {
   return normalizeSettings(readJson('settings.json'), process.env);
 }
 
-/** API keys per provider, encrypted with the OS keychain via safeStorage. Never sent to the renderer. */
-export function getKey(provider = getSettings().provider): string | undefined {
-  const enc = readJson('keys.json')[provider];
+const origin = (url: unknown) => URL.parse(String(url))?.origin ?? String(url);
+
+/** keys.json entry: one per OpenAI-compatible server origin, so a key never reaches a server it wasn't saved for. */
+export function keySlot(s: Pick<Settings, 'provider' | 'baseUrl'>): string {
+  return s.provider === 'openai' ? `openai@${origin(s.baseUrl)}` : s.provider;
+}
+
+/**
+ * Encrypted key for `s`. A pre-origin `keys.openai` counts only where the settings file itself pointed an
+ * `openai` provider (never settings migrated from `lmstudio`, never after the URL changes).
+ */
+export function storedKey(
+  keys: Record<string, string>,
+  raw: Record<string, unknown>,
+  s: Settings,
+): string | undefined {
+  const slot = keySlot(s);
+  if (keys[slot]) return keys[slot];
+  if (
+    s.provider === 'openai' &&
+    raw.provider === 'openai' &&
+    slot === keySlot({ provider: 'openai', baseUrl: String(raw.baseUrl ?? DEFAULT_URLS.openai) })
+  )
+    return keys.openai;
+  return undefined;
+}
+
+/** Before a save can change the URL, pin `keys.openai` to the origin it was saved with (or park it unread). */
+export function rebindLegacyKey(
+  keys: Record<string, string>,
+  raw: Record<string, unknown>,
+): Record<string, string> {
+  const { openai, ...rest } = keys;
+  if (!openai) return keys;
+  const slot =
+    raw.provider === 'openai'
+      ? keySlot({ provider: 'openai', baseUrl: String(raw.baseUrl ?? DEFAULT_URLS.openai) })
+      : 'openai@unknown';
+  return { [slot]: openai, ...rest };
+}
+
+/** API keys, encrypted with the OS keychain via safeStorage. Never sent to the renderer. */
+export function getKey(s = getSettings()): string | undefined {
+  const enc = storedKey(readJson('keys.json'), readJson('settings.json'), s);
   if (!enc) return undefined;
   try {
     return safeStorage.decryptString(Buffer.from(enc, 'base64'));
@@ -62,12 +103,10 @@ export function setSettings(patch: Partial<Settings> & { apiKey?: string }): Pub
   const harness = next.provider === 'codex' ? 'codex' : next.provider === 'claude-code' ? 'claude' : null;
   if (harness && next.cliPath && ('cliPath' in rest || 'provider' in rest))
     checkCliPath(next.cliPath, harness);
+  const keys = rebindLegacyKey(readJson('keys.json'), readJson('settings.json'));
+  if (apiKey) keys[keySlot(next)] = safeStorage.encryptString(apiKey).toString('base64');
+  else if (apiKey !== undefined) delete keys[keySlot(next)];
+  writeFileSync(file('keys.json'), JSON.stringify(keys));
   writeFileSync(file('settings.json'), JSON.stringify(next, null, 2));
-  if (apiKey !== undefined) {
-    const keys = readJson('keys.json');
-    if (apiKey) keys[next.provider] = safeStorage.encryptString(apiKey).toString('base64');
-    else delete keys[next.provider];
-    writeFileSync(file('keys.json'), JSON.stringify(keys));
-  }
   return publicSettings();
 }

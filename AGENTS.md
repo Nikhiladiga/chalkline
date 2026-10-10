@@ -29,7 +29,7 @@ Live CLI acceptance tests are opt-in and use the user's login and quota. Source-
 - Preserve the legacy `diagrammer` user-data directory and existing settings/recovery compatibility.
 - Diagram documents contain `{ entities, connections }`; keep app metadata outside saved diagrams.
 - Use the pinned `@eraserlabs/*` 0.2.0 packages and retain upstream/license/font notices in `third_party/eraser-diagrams`.
-- Provider calls run in main; API keys never enter the renderer. Providers include Codex CLI, Claude Code CLI, LM Studio and OpenAI-compatible APIs.
+- Provider calls run in main; API keys never enter the renderer. Providers are installed CLIs (Codex, Claude Code) or an OpenAI-compatible API with LM Studio, Ollama, OpenAI and custom URL presets. Saved API keys are scoped to the server origin; stored `lmstudio` settings migrate to `openai` on read.
 - Preserve isolated CLI generation and bounded source scanning. Default code-folder diagrams describe runtime architecture, rather than import graphs.
 - Keep document session/revision guards, invalid-code recovery and atomic writes intact. User edits must survive delayed save and AI completions.
 - Releases are manual: Actions → Release → Run workflow; the workflow bumps `package.json`, tags and publishes. Do not tag by hand.

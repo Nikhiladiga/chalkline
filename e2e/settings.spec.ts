@@ -64,6 +64,24 @@ test('the Settings dialog keeps one outer size across provider kind, harness and
   await expect(page.getByRole('button', { name: 'Save settings' })).toBeInViewport();
 });
 
+test('at 1440×900 the dialog keeps its 640 px height and sits inside the themed .app shell', async () => {
+  const page = await openSettings({ provider: 'claude-code' }, [1440, 900]);
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  // Inside .app, so the chrome tokens and the themed :focus-visible ring apply.
+  expect(await dialog.evaluate((d) => d.closest('.app') !== null)).toBe(true);
+  const height = async () => (await dialog.boundingBox())!.height;
+  expect(Math.abs((await height()) - 640)).toBeLessThanOrEqual(1);
+  await harness(page, 'Codex CLI').click();
+  expect(Math.abs((await height()) - 640)).toBeLessThanOrEqual(1);
+  await kind(page, 'API').click();
+  for (const name of ['LM Studio', 'Ollama', 'OpenAI', 'Custom']) {
+    await preset(page, name).click();
+    expect(Math.abs((await height()) - 640)).toBeLessThanOrEqual(1);
+  }
+  await kind(page, 'Installed CLI').click();
+  expect(Math.abs((await height()) - 640)).toBeLessThanOrEqual(1);
+});
+
 test('harness cards are a radiogroup driven by arrow keys', async () => {
   const page = await openSettings({ provider: 'claude-code' });
   const claude = harness(page, 'Claude Code CLI');

@@ -311,15 +311,11 @@ describe('friendlyError', () => {
   const refused = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
   const api = (baseUrl: string) => settings(baseUrl, { provider: 'openai' });
 
-  it('keeps the LM Studio hint for a local server on port 1234', () => {
-    for (const url of ['http://127.0.0.1:1234/v1', 'http://localhost:1234/v1'])
-      expect(friendlyError(refused(), api(url))).toMatch(/LM Studio.*(Start Server|lms server start)/);
-  });
-
-  it('asks to start other local servers by URL', () => {
-    expect(friendlyError(refused(), api('http://127.0.0.1:11434/v1'))).toBe(
-      "Can't reach the local server at http://127.0.0.1:11434/v1. Start it and load a model.",
-    );
+  it('gives every local server the same hint, LM Studio included', () => {
+    for (const url of ['http://127.0.0.1:1234/v1', 'http://localhost:1234/v1', 'http://127.0.0.1:11434/v1'])
+      expect(friendlyError(refused(), api(url))).toBe(
+        `Can't reach the local server at ${url}. Start it and load a model.`,
+      );
   });
 
   it('keeps the generic network hint for remote servers', () => {
