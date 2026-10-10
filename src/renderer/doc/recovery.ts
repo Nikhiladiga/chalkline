@@ -98,35 +98,38 @@ export function restoredTab(t: RecoveredTab): TabInit {
 }
 
 /**
- * Every entry as a new tab, in order. A clean file tab reloads its file from disk through `read`;
- * if that fails (moved, deleted, no longer a diagram) its snapshot comes back instead and the path
- * is listed in `missing`.
+ * Every entry as a new tab, in order. A clean file tab reloads its file from disk through `read`
+ * (main's `file:reopen`: null unless the user once chose that file in a dialog). If that gives
+ * nothing (unknown, moved, deleted, no longer a diagram) its snapshot comes back instead and the
+ * path is listed in `missing`.
  */
 export async function restoredTabs(
   r: Recovery,
-  read: (path: string) => Promise<OpenedFile>,
+  read: (path: string) => Promise<OpenedFile | null>,
 ): Promise<{ tabs: TabInit[]; missing: string[] }> {
-  const missing: string[] = [];
+  const missing: string[] = []; // by tab index, so the list keeps tab order whatever finishes first
   const tabs = await Promise.all(
-    r.tabs.map(async (t): Promise<TabInit> => {
+    r.tabs.map(async (t, i): Promise<TabInit> => {
       if (t.dirty || t.filePath === null) return restoredTab(t);
       try {
         const f = await read(t.filePath);
+        if (!f) throw new Error('not reopened');
         const doc = docFromJson(JSON.parse(f.content));
         return { doc, codeDraft: null, filePath: f.path, fileKey: f.key, dirty: false, view: null };
       } catch {
-        missing.push(t.filePath);
+        missing[i] = t.filePath;
         return restoredTab(t);
       }
     }),
   );
-  return { tabs, missing };
+  return { tabs, missing: missing.filter(() => true) };
 }
 
 /**
- * Keep the recovery file in step with the tabs: `delay` ms after the last change, write it, or clear it
- * once nothing is unsaved. Starts as "nothing written", so a clean start never deletes a crash file
- * before the restore prompt is answered. Returns the unsubscribe function.
+ * Keep the recovery file in step with the tabs: `delay` ms after the last change, write it; once
+ * nothing is unsaved, clear it at once (a save or discard followed by quit leaves no crash file).
+ * Starts as "nothing written", so a clean start never deletes a crash file before the restore prompt
+ * is answered. Returns the unsubscribe function.
  */
 export function watchRecovery(
   io: { write(text: string): Promise<unknown>; clear(): Promise<unknown> },
@@ -148,6 +151,9 @@ export function watchRecovery(
   const off = useTabs.subscribe((s, p) => {
     if (s.tabs === p.tabs && s.activeId === p.activeId) return;
     clearTimeout(timer);
+    if (!s.tabs.some((t) => t.dirty)) return flush();
+    // Unsaved work exists (e.g. restored tabs), so the file may need clearing even before the first write.
+    if (last === null) last = undefined;
     timer = setTimeout(flush, delay);
   });
   return () => {

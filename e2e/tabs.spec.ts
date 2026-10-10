@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -29,10 +29,18 @@ test.afterEach(async () => {
   dir = undefined;
 });
 
+const userData = () => join(dir!, 'ud');
+
 async function open(env: Record<string, string> = {}): Promise<Page> {
   dir = mkdtempSync(join(tmpdir(), 'dg-tabs-'));
-  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ hostedIcons: false }));
-  const launched = await launch({ DG_USER_DATA: dir, DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1', ...env });
+  // App data lives apart from the test's diagrams: main never saves or reopens files inside it.
+  mkdirSync(userData());
+  writeFileSync(join(userData(), 'settings.json'), JSON.stringify({ hostedIcons: false }));
+  const launched = await launch({
+    DG_USER_DATA: userData(),
+    DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1',
+    ...env,
+  });
   app = launched.app;
   const page = launched.page;
   await page.waitForFunction(() => (window as any).__dg);
@@ -620,7 +628,7 @@ async function crashAndRelaunch(): Promise<Page> {
   const exited = new Promise((resolve) => killed.once('exit', resolve));
   killed.kill('SIGKILL');
   await exited;
-  const relaunched = await launch({ DG_USER_DATA: dir!, DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1' });
+  const relaunched = await launch({ DG_USER_DATA: userData(), DG_LLM_BASE_URL: 'http://127.0.0.1:1/v1' });
   app = relaunched.app;
   await relaunched.page.waitForFunction(() => (window as any).__dg);
   return relaunched.page;
@@ -638,6 +646,13 @@ async function offer(page: Page, accept: boolean): Promise<string | null> {
   return asked;
 }
 const readRecovery = (page: Page) => page.evaluate(() => window.api.invoke('recovery:read'));
+/** File › Open through the native dialog (mocked to pick `path`): main then remembers the file. */
+async function openViaDialog(page: Page, path: string): Promise<void> {
+  await app!.evaluate(({ dialog }, p) => {
+    (dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+  }, path);
+  await page.evaluate(() => (window as any).__dg.actions.openFile());
+}
 
 test('recovery restores every tab with content, in order, with the active tab and its code draft', async () => {
   let page = await open();
@@ -645,10 +660,10 @@ test('recovery restores every tab with content, in order, with the active tab an
   const payments = join(dir!, 'Payments.json');
   writeFileSync(orders, JSON.stringify(DOC));
   writeFileSync(payments, JSON.stringify(DOC));
-  await load(page, DOC, orders); // a clean file tab
+  await openViaDialog(page, orders); // a clean file tab
   await newTabButton(page).click(); // stays pristine: not recovered
   await newTabButton(page).click(); // a file tab with unsaved code
-  await load(page, DOC, payments);
+  await openViaDialog(page, payments);
   await page.evaluate(() => (window as any).__dg.doc.getState().setCodeDraft('{"entities": ['));
   await newTabButton(page).click(); // an edited Untitled
   await page.evaluate((d) => (window as any).__dg.doc.getState().commit(d), SOLO);
@@ -681,20 +696,44 @@ test('recovery restores every tab with content, in order, with the active tab an
   expect(ids(await docIn(page, 2))).toEqual(['solo']);
 });
 
-test('a clean file that is gone comes back as its last copy, unsaved', async () => {
+test('a clean file that is gone, or was never chosen in a dialog, comes back as its last copy', async () => {
   let page = await open();
   const gone = join(dir!, 'Gone.json');
+  const stranger = join(dir!, 'Stranger.json'); // on disk, but never opened or saved through a dialog
   writeFileSync(gone, JSON.stringify(DOC));
-  await load(page, DOC, gone);
-  await newTabButton(page).click();
-  await page.evaluate((d) => (window as any).__dg.doc.getState().commit(d), SOLO);
-  await expect.poll(async () => JSON.parse((await readRecovery(page)) ?? 'null')?.tabs.length).toBe(2);
+  writeFileSync(stranger, JSON.stringify(SOLO));
+  await openViaDialog(page, gone);
+  const entry = (filePath: string) => ({ doc: DOC, codeDraft: null, filePath, dirty: false });
+  await page.evaluate(
+    (text) => window.api.invoke('recovery:write', text),
+    JSON.stringify({ recoveryVersion: 2, active: 0, tabs: [entry(gone), entry(stranger)] }),
+  );
   rmSync(gone);
   page = await crashAndRelaunch();
   expect(await offer(page, true)).toBe('Restore 2 tabs from your last session?');
   await expect(tabs(page)).toHaveText(['Untitled — edited', 'Untitled 2 — edited']);
-  await expect(page.getByRole('status')).toContainText('Gone.json');
+  await expect(page.getByRole('status')).toHaveText(
+    'Could not reopen Gone.json, Stranger.json: their last copies are back as unsaved Untitled tabs.',
+  );
   expect(ids(await docIn(page, 0))).toEqual(['web', 'api']);
+  expect(ids(await docIn(page, 1))).toEqual(['web', 'api']); // the snapshot, not the file on disk
+});
+
+test('saving the last unsaved tab clears recovery at once, so a quick quit leaves nothing to restore', async () => {
+  let page = await open({ DG_SAVE_DIR: '' });
+  await page.evaluate((d) => (window as any).__dg.doc.getState().commit(d), SOLO);
+  await expect.poll(() => readRecovery(page)).not.toBeNull();
+  await app!.evaluate(
+    ({ dialog }, p) => {
+      (dialog as any).showSaveDialog = async () => ({ canceled: false, filePath: p });
+    },
+    join(dir!, 'Quick.json'),
+  );
+  await page.evaluate(() => (window as any).__dg.actions.save());
+  await expect(activeTab(page)).toHaveText('Quick');
+  await page.waitForTimeout(200); // well inside the 2 s write delay
+  page = await crashAndRelaunch();
+  expect(await offer(page, true)).toBeNull();
 });
 
 test('declining the restore offer clears it for good; v1 files restore one tab; nothing to restore asks nothing', async () => {

@@ -141,10 +141,12 @@ describe('restoredTabs', () => {
 
   it('falls back to the snapshot when a clean file is gone or unreadable', async () => {
     const entry = { doc: d(1), codeDraft: null, filePath: '/gone.json', dirty: false };
-    const gone = await restoredTabs({ recoveryVersion: 2, active: 0, tabs: [entry] }, async () => {
-      throw new Error('ENOENT');
-    });
+    const gone = await restoredTabs({ recoveryVersion: 2, active: 0, tabs: [entry] }, async () => null);
     expect(gone).toEqual({ tabs: [restoredTab(entry)], missing: ['/gone.json'] });
+    const failed = await restoredTabs({ recoveryVersion: 2, active: 0, tabs: [entry] }, async () => {
+      throw new Error('EACCES');
+    });
+    expect(failed.missing).toEqual(['/gone.json']);
     const garbled = await restoredTabs({ recoveryVersion: 2, active: 0, tabs: [entry] }, async (p) => ({
       path: p,
       content: 'not json',
@@ -162,7 +164,7 @@ describe('watchRecovery', () => {
     clear: vi.fn(async () => {}),
   });
 
-  it('writes all tabs 2 s after the last change, skips identical text, and clears once all is saved', () => {
+  it('writes all tabs 2 s after the last change, skips identical text, and clears at once when all is saved', () => {
     const w = io();
     const off = watchRecovery(w, () => {});
     useDoc.getState().commit(d(1));
@@ -175,8 +177,21 @@ describe('watchRecovery', () => {
     vi.advanceTimersByTime(2000);
     expect(w.write).toHaveBeenCalledTimes(1);
     useDoc.getState().markSaved('/tmp/a.json');
-    vi.advanceTimersByTime(2000);
+    // No delay: quitting right after a save must not leave a crash file behind.
     expect(w.clear).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2000);
+    expect(w.write).toHaveBeenCalledTimes(1);
+    expect(w.clear).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it('clears a restored crash file when every tab is made clean before the first write', () => {
+    const w = io();
+    const off = watchRecovery(w, () => {});
+    const restored = addTab({ doc: d(1), dirty: true }); // what a restore adds
+    removeTab(restored); // discarded before the 2 s write
+    expect(w.clear).toHaveBeenCalledTimes(1);
+    expect(w.write).not.toHaveBeenCalled();
     off();
   });
 

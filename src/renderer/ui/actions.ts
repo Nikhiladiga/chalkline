@@ -155,7 +155,7 @@ export async function restoreRecovery(text: string): Promise<void> {
   try {
     const saved = fromRecovery(text);
     if (!saved.tabs.length) return;
-    const { tabs, missing } = await restoredTabs(saved, (path) => api().invoke('file:openPath', path));
+    const { tabs, missing } = await restoredTabs(saved, (path) => api().invoke('file:reopen', path));
     leaveActiveTab();
     const reuse = isPristine(useDoc.getState()) ? useTabs.getState().activeId : null;
     if (reuse) patchTab(reuse, { untitled: 0 }); // hand its "Untitled" number to the first restored tab
@@ -169,7 +169,11 @@ export async function restoreRecovery(text: string): Promise<void> {
     }
     if (missing.length) {
       const names = missing.map((p) => p.split(/[\\/]/).pop()).join(', ');
-      toast(`Could not reopen ${names}: its last copy is back as an unsaved Untitled.`);
+      const back =
+        missing.length > 1
+          ? 'their last copies are back as unsaved Untitled tabs'
+          : 'its last copy is back as an unsaved Untitled';
+      toast(`Could not reopen ${names}: ${back}.`);
     }
   } catch (e) {
     toast(`Could not restore: ${ipcMessage(e)}`);

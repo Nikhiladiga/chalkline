@@ -56,6 +56,8 @@ export type ChatMsg = z.infer<typeof ChatMsg>;
 /** Every invoke channel and the zod schema of its single argument. */
 export const channels = {
   'file:open': z.undefined(),
+  /** Re-read a file chosen earlier in an Open/Save dialog (crash recovery); null if unknown or unreadable. */
+  'file:reopen': z.string(),
   'file:save': z.object({ path: z.string().nullable(), content: z.string() }),
   'recovery:write': z.string(),
   'recovery:read': z.undefined(),

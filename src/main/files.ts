@@ -19,9 +19,59 @@ async function atomicWrite(path: string, content: string | Uint8Array, mode = 0o
   }
 }
 
-/** Documents the user picked in a native Open/Save dialog: the only paths `file:save` may overwrite silently. */
+/**
+ * Documents the user picked in a native Open/Save dialog this session, or that `reopen` restored this
+ * session: the only paths `file:save` may overwrite silently.
+ */
 const chosen = new Set<string>();
-const choose = async (path: string) => chosen.add(await chosenKey(path));
+
+/**
+ * `known-files.json`: keys of files the user picked in a native Open or Save dialog, most recent first.
+ * Only main writes it, from dialog picks, never with a path the renderer sent, so crash recovery may re-read these.
+ */
+const KNOWN_MAX = 200;
+let knownP: Promise<string[]> | undefined;
+let knownQueue: Promise<unknown> = Promise.resolve();
+
+// One shared load: a reopen reading the file can never overwrite a list `choose` just extended.
+const loadKnown = () =>
+  (knownP ??= readFile(userFile('known-files.json'), 'utf8')
+    .then((text) => {
+      const v = JSON.parse(text);
+      return Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string') : [];
+    })
+    .catch(() => []));
+
+/** Record a dialog-chosen path: allowed to save silently now, and to reopen after a crash. */
+async function choose(path: string): Promise<void> {
+  const key = await chosenKey(path);
+  chosen.add(key);
+  // Never rejects: a bookkeeping failure must not fail an open or save.
+  knownQueue = knownQueue
+    .then(async () => {
+      // ponytail: LRU cap; a stale key only re-allows reopening a file the user once chose in a dialog.
+      const list = [key, ...(await loadKnown()).filter((k) => k !== key)].slice(0, KNOWN_MAX);
+      knownP = Promise.resolve(list);
+      await atomicWrite(userFile('known-files.json'), JSON.stringify(list));
+    })
+    .catch(() => {});
+  await knownQueue;
+}
+
+/**
+ * Crash recovery: re-read a file, but only one the user picked in an Open/Save dialog and never one in the
+ * app data folder; else null. A reopened file may then be saved silently, like a dialog pick.
+ */
+export async function reopen(path: string): Promise<OpenedFile | null> {
+  await knownQueue;
+  const real = await outsideAppData(path, app.getPath('userData'));
+  const key = real && (await chosenKey(real).catch(() => null));
+  if (!real || !key || !(await loadKnown()).includes(key)) return null;
+  const content = await readFile(real, 'utf8').catch(() => null);
+  if (content === null) return null;
+  chosen.add(key);
+  return { path, content, key };
+}
 
 async function openPath(path: string): Promise<OpenedFile> {
   const content = await readFile(path, 'utf8');

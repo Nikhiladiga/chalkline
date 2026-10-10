@@ -18,6 +18,7 @@ describe('IPC payload validation', () => {
   });
 
   it('exposes no channel that reads a renderer-named path', () => {
+    // `file:reopen` takes a path, but main reads it only when its key is a past dialog pick (files.test.ts).
     for (const channel of ['file:openPath', 'file:recent'])
       expect(() => parseArgs(channel as never, '/etc/passwd')).toThrow('unknown channel');
   });
