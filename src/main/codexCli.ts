@@ -4,7 +4,15 @@ import { delimiter, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
-import { clip, DEEP_WALL_ERROR, type Deep, deepLimits, findClaude, transcript } from './claudeCli';
+import {
+  clip,
+  DEEP_WALL_ERROR,
+  type Deep,
+  deepLimits,
+  findClaude,
+  redactPaths,
+  transcript,
+} from './claudeCli';
 
 // Source text is evidence, never authorization to run tools or load the user's plugins/MCP/rules.
 const FEATURES = [
@@ -116,23 +124,12 @@ export function codexModels(s: Settings): Promise<string[]> {
   });
 }
 
-const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const PREFIX_END = String.raw`(?=[/\s'"\`;|&()<>]|$)`;
-/** Show the repo as `.`, home as `~`, and any other absolute path as its basename. */
-export function redactPaths(command: string, cwd?: string): string {
-  let out = command;
-  if (cwd) out = out.replace(new RegExp(`${esc(cwd)}${PREFIX_END}`, 'g'), '.');
-  const home = homedir();
-  if (home.length > 1) out = out.replace(new RegExp(`${esc(home)}${PREFIX_END}`, 'g'), '~');
-  return out.replace(/(?<![\w.~])\/[^\s'"`;|&()<>]*/g, (p) => p.split('/').filter(Boolean).pop() ?? '/');
-}
-
 /** One progress line for a Codex JSONL event: the command it is about to run. */
 export function codexProgress(ev: any, cwd?: string): string | null {
   const command = ev?.type === 'item.started' && ev.item?.type === 'command_execution' && ev.item.command;
   if (typeof command !== 'string') return null;
   return clip(
-    `Running ${redactPaths(command.replace(/^bash -lc /, '').replace(/^(['"])(.*)\1$/, '$2'), cwd)}`,
+    `Running ${redactPaths(command.replace(/^bash -lc /, '').replace(/^(['"])(.*)\1$/, '$2'), cwd ?? '', homedir())}`,
   );
 }
 

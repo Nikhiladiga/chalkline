@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
+import { basename, delimiter, dirname, join, win32 } from 'node:path';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
 
@@ -154,6 +154,53 @@ export function transcript(messages: ChatMsg[]): string {
 export const clip = (text: string) => (text.length > 80 ? `${text.slice(0, 79)}…` : text);
 const DENIED = /denied by your permission settings|outside .*--restricted/;
 
+// Path redaction is pure and platform-independent so Windows paths work from any host.
+const TOKEN = String.raw`[^\s'"\`;|&()<>]`;
+const ABS_PATH = new RegExp(
+  String.raw`file:\/\/\/?${TOKEN}*|(?<!\w)[A-Za-z]:[\\/]${TOKEN}*|\\\\${TOKEN}+|(?<![\w.~])\/${TOKEN}*`,
+  'g',
+);
+const isAbs = (p: string) => /^(file:\/\/|[A-Za-z]:[\\/]|\\\\|\/)/.test(p);
+const parts = (p: string) => {
+  const q = p.replace(/^file:\/\/\/?/, (m) => (m.length > 7 ? '/' : '')).replace(/\\/g, '/');
+  const win = /^[A-Za-z]:\//.test(q) || /^\/\/[^/]/.test(p.replace(/\\/g, '/'));
+  const segs: string[] = [];
+  for (const seg of q.split('/')) {
+    if (seg === '..') segs.pop();
+    else if (seg && seg !== '.') segs.push(seg);
+  }
+  return { win, segs };
+};
+const under = (a: { win: boolean; segs: string[] }, root: { win: boolean; segs: string[] }) => {
+  if (!root.segs.length || a.win !== root.win || a.segs.length < root.segs.length) return false;
+  const norm = (x = '') => (a.win ? x.toLowerCase() : x);
+  return root.segs.every((seg, i) => norm(seg) === norm(a.segs[i]));
+};
+
+/**
+ * One path for display: inside cwd it is repo-relative (`./` prefix when `mark`), inside home it is `~/…`,
+ * anything else is its basename. `..` segments collapse first. Relative paths resolve against cwd.
+ */
+export function redactPath(p: string, cwd: string, home?: string, mark = true): string {
+  const c = parts(cwd);
+  const a = isAbs(p) ? parts(p) : parts(`${cwd}/${p}`);
+  if (under(a, c)) {
+    const rest = a.segs.slice(c.segs.length).join('/');
+    return mark ? (rest ? `./${rest}` : '.') : rest;
+  }
+  if (home && under(a, parts(home)))
+    return `~${a.segs
+      .slice(parts(home).segs.length)
+      .map((x) => `/${x}`)
+      .join('')}`;
+  return a.segs.at(-1) ?? p;
+}
+
+/** Redact every absolute path in a shell command (drive-letter, UNC, POSIX and file:// forms). */
+export function redactPaths(command: string, cwd: string, home?: string): string {
+  return command.replace(ABS_PATH, (tok) => redactPath(tok, cwd, home));
+}
+
 /** One progress line for a deep-scan stream event, or null for events worth no line. */
 export function claudeProgress(ev: any, cwd: string): string | null {
   const blocks: any[] = Array.isArray(ev?.message?.content) ? ev.message.content : [];
@@ -167,10 +214,7 @@ export function claudeProgress(ev: any, cwd: string): string | null {
     return denied ? 'Skipped a protected file' : null;
   }
   if (ev?.type !== 'assistant') return null;
-  const rel = (p: string) => {
-    const r = relative(cwd, resolve(cwd, p));
-    return r.startsWith('..') ? basename(p) : r;
-  };
+  const rel = (p: string) => redactPath(p, cwd, undefined, false);
   const steps = blocks
     .filter((b) => b?.type === 'tool_use')
     .map((b) => {
@@ -184,7 +228,7 @@ export function claudeProgress(ev: any, cwd: string): string | null {
       if (b.name === 'Glob') {
         const pattern = String(input.pattern ?? '');
         // Absolute patterns are shown repo-relative, or as a basename when outside the folder.
-        return `Listing ${isAbsolute(pattern) ? rel(pattern) : pattern}`.trimEnd();
+        return `Listing ${isAbs(pattern) ? rel(pattern) : pattern}`.trimEnd();
       }
       if (b.name === 'StructuredOutput') return 'Writing diagram';
       return null;
