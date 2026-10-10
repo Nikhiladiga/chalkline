@@ -17,6 +17,11 @@ describe('IPC payload validation', () => {
     expect(parseArgs('file:save', { path: null, content: '{}' })).toEqual({ path: null, content: '{}' });
   });
 
+  it('exposes no channel that reads a renderer-named path', () => {
+    for (const channel of ['file:openPath', 'file:recent'])
+      expect(() => parseArgs(channel as never, '/etc/passwd')).toThrow('unknown channel');
+  });
+
   it('rejects a non-string path', () => {
     expect(() => parseArgs('file:save', { path: 3, content: '{}' })).toThrow();
   });

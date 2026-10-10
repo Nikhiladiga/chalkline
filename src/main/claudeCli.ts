@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, dirname, join, win32 } from 'node:path';
+import { basename, delimiter, dirname, join, win32 } from 'node:path';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
 
@@ -48,14 +48,22 @@ export function cliSearchPaths(
   return dirs.filter(Boolean).flatMap((dir) => extensions.map((ext) => win32.join(dir, binary + ext)));
 }
 
+/** A configured CLI path is only ever run if it names the expected executable and is a regular file. */
+export function checkCliPath(cliPath: string, binary: string, platform = process.platform): string {
+  const path = expand(cliPath);
+  const name = platform === 'win32' ? win32.basename(path).replace(/\.(exe|cmd|bat)$/i, '') : basename(path);
+  const wrong = new Error(`CLI path must point to the ${binary} executable.`);
+  if (name.toLowerCase() !== binary) throw wrong;
+  if (!existsSync(path)) throw new CliMissing(cliPath, binary === 'codex' ? 'Codex' : 'Claude Code');
+  if (!statSync(path).isFile()) throw wrong;
+  return path;
+}
+
 let found: string | undefined;
 /** The settings path if set, else PATH, the usual install spots, then a login shell's `command -v`. */
 export function findClaude(cliPath: string, binary = 'claude'): string {
   const missing = (where: string) => new CliMissing(where, binary === 'codex' ? 'Codex' : 'Claude Code');
-  if (cliPath) {
-    if (!existsSync(expand(cliPath))) throw missing(cliPath);
-    return expand(cliPath);
-  }
+  if (cliPath) return checkCliPath(cliPath, binary);
   if (binary === 'claude' && found && existsSync(found)) return found;
   let path = cliSearchPaths(binary).find((p) => existsSync(p));
   if (!path) {

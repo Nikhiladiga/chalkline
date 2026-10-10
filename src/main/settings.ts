@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, safeStorage } from 'electron';
 import { DEFAULT_SETTINGS, DEFAULT_URLS, type PublicSettings, Settings } from '../shared/ipc';
+import { checkCliPath } from './claudeCli';
 
 const file = (name: string) => join(app.getPath('userData'), name);
 
@@ -49,6 +50,10 @@ export function setSettings(patch: Partial<Settings> & { apiKey?: string }): Pub
   if (rest.provider && rest.provider !== current.provider && !rest.baseUrl)
     rest.baseUrl = DEFAULT_URLS[rest.provider];
   const next = Settings.parse({ ...current, ...rest });
+  // Checked again before every spawn; here so a bad path is refused when it is entered.
+  const harness = next.provider === 'codex' ? 'codex' : next.provider === 'claude-code' ? 'claude' : null;
+  if (harness && next.cliPath && ('cliPath' in rest || 'provider' in rest))
+    checkCliPath(next.cliPath, harness);
   writeFileSync(file('settings.json'), JSON.stringify(next, null, 2));
   if (apiKey !== undefined) {
     const keys = readJson('keys.json');

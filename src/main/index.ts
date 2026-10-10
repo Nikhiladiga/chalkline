@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { type Channel, parseArgs } from '../shared/ipc';
-import { exportPng, exportText } from './export';
+import { exportPng } from './export';
 import * as files from './files';
 import { handleIcons, registerIconScheme } from './icons';
 import { chat, friendlyError, installedHarnesses, listModels } from './llm';
@@ -92,9 +92,7 @@ const aborts = new Map<string, AbortController>();
 const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electron.WebContents) => unknown } =
   {
     'file:open': (_a, win) => files.openDialog(win),
-    'file:openPath': (path) => files.openPath(path),
     'file:save': (a, win) => files.save(win, a.path, a.content),
-    'file:recent': () => files.recent(),
     'recovery:write': (content) => files.writeRecovery(content),
     'recovery:read': () => files.readRecovery(),
     'recovery:clear': () => files.clearRecovery(),
@@ -133,7 +131,7 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
       }
     },
     'export:png': (a, win) => exportPng(win, load, prefs, a),
-    'export:save': (a, win) => exportText(win, a.kind, a.content, a.name),
+    'export:save': (a, win) => files.saveExport(win, a.name, a.kind, a.content),
     'app:dirty': (flag) => {
       dirty = flag;
     },
