@@ -132,12 +132,19 @@ out({type:'result',structured_output:${JSON.stringify(generated)}});
     await page.waitForFunction(() => (window as any).__dg);
     await page.getByLabel('Diagram source').selectOption('folder');
     await page.getByRole('button', { name: 'Choose folder', exact: true }).click();
-    await expect(page.getByTestId('code-folder')).toContainText('eligible files read');
+    // Excerpt-scan coverage does not apply to a deep run: show the deep line instead.
+    const coverage = page.locator('.code-folder-coverage');
+    await expect(coverage).toHaveText(/^Deep scan: Claude Code explores the folder itself\.\s*Rescan$/);
+    await expect(page.getByTestId('code-folder')).not.toContainText('eligible files read');
+    await expect(page.getByTestId('code-folder')).not.toContainText('Partial evidence');
     await expect(page.getByRole('switch', { name: 'Deep scan', exact: true })).toBeChecked();
     await page.getByTestId('ai-run').click();
     await expect(stage).toContainText('Reading src/server.ts');
     await expect(page.locator('.hit[data-id="api"]')).toBeVisible();
     await expect(page.getByTestId('ai-outcome')).toContainText('Diagram generated');
+    await expect(coverage).toContainText(
+      'Deep scan: Claude Code explores the folder itself. Last run: 1 file read.',
+    );
     await expect(stage).toHaveCount(0);
     const [first, repair] = calls();
     // The first call really is deep, and no excerpts were sent instead.

@@ -25,6 +25,8 @@ export function AiPanel() {
   const [source, setSource] = useState<'description' | 'folder'>('description');
   const [project, setProject] = useState<CodeProject | null>(null);
   const [scan, setScan] = useState<ProjectScan | null>(null);
+  /** Files the last deep run read, counted from its progress lines. */
+  const [deepReads, setDeepReads] = useState<number | null>(null);
   const active = useRef<{ id: string; cancelled: boolean } | null>(null);
   const [allowMove, setAllowMove] = useState(false);
   const [running, setRunning] = useState<{ id: string; stage: string; chars: number } | null>(null);
@@ -103,6 +105,7 @@ export function AiPanel() {
       if (!selected) return;
       setProject(selected);
       setScan(null);
+      setDeepReads(null);
       await readProject(selected, id, settings ?? (await window.api.invoke('settings:get')));
     } catch (e) {
       setOutcome({
@@ -127,8 +130,11 @@ export function AiPanel() {
     const off = window.api.on('llm:chunk', (c: { id: string; text: string }) => {
       if (c.id === id) setRunning((r) => (r ? { ...r, chars: r.chars + c.text.length } : r));
     });
+    let reads = 0;
     const offProgress = window.api.on('llm:progress', (p: { id: string; text: string }) => {
-      if (p.id === id) setRunning((r) => (r ? { ...r, stage: p.text } : r));
+      if (p.id !== id) return;
+      reads += p.text.match(/(?:^| · )Reading /g)?.length ?? 0;
+      setRunning((r) => (r ? { ...r, stage: p.text } : r));
     });
     const current = useDoc.getState().doc;
     const currentRevision = useDoc.getState().revision;
@@ -186,6 +192,7 @@ export function AiPanel() {
         },
       );
       checkStopped(id);
+      if (deep) setDeepReads(reads);
       const changed = useDoc.getState().revision !== currentRevision;
       if (
         result.ok &&
@@ -295,6 +302,7 @@ export function AiPanel() {
           scan={scan}
           busy={Boolean(running)}
           deep={Boolean(settings?.deepScan && canDeepScan(settings.provider))}
+          deepReads={deepReads}
           choose={() => void previewProject(true)}
           rescan={() => void previewProject(false)}
         />

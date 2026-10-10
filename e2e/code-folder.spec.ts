@@ -61,6 +61,7 @@ console.log(JSON.stringify({type:'result',structured_output:prompt.includes('QUE
     await page.getByLabel('Diagram source').selectOption('folder');
     await page.getByRole('button', { name: 'Choose folder', exact: true }).click();
     await expect(page.getByTestId('code-folder')).toContainText('3 of 3 eligible files read');
+    await expect(page.getByTestId('code-folder')).not.toContainText('Claude Code explores the folder');
     expect(existsSync(log)).toBe(false);
     expect(await page.evaluate(() => (window as any).__dg.doc.getState().doc.entities.length)).toBe(0);
     await page.getByTestId('ai-run').click();

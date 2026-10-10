@@ -5,6 +5,7 @@ export function CodeFolder({
   scan,
   busy,
   deep,
+  deepReads,
   choose,
   rescan,
 }: {
@@ -13,6 +14,8 @@ export function CodeFolder({
   busy: boolean;
   /** Deep scan on: the CLI reads the folder itself, so no excerpts are sent. */
   deep: boolean;
+  /** Files the last deep run read, or null before one. */
+  deepReads?: number | null;
   choose(): void;
   rescan(): void;
 }) {
@@ -34,15 +37,22 @@ export function CodeFolder({
       {scan && (
         <>
           <div className="row code-folder-coverage">
-            <span>
-              {scan.filesRead} of {scan.filesFound} eligible files read; {scan.filesIncluded} in model
-              context.
-            </span>
+            {deep ? (
+              <span>
+                Deep scan: Claude Code explores the folder itself.
+                {deepReads != null && ` Last run: ${deepReads} file${deepReads === 1 ? '' : 's'} read.`}
+              </span>
+            ) : (
+              <span>
+                {scan.filesRead} of {scan.filesFound} eligible files read; {scan.filesIncluded} in model
+                context.
+              </span>
+            )}
             <button type="button" className="btn secondary" disabled={busy} onClick={rescan}>
               Rescan
             </button>
           </div>
-          {scan.limited && (
+          {scan.limited && !deep && (
             <p className="code-folder-limited">
               Partial evidence — the diagram may omit uninspected components.
             </p>
