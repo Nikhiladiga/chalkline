@@ -53,6 +53,8 @@ type Gesture =
       /** Alt is held: the preview shows copies and the originals stay. */
       copy: boolean;
       moved: boolean;
+      /** Shift-press on a selected element: deselect it on release unless the press became a drag. */
+      toggle?: string;
     }
   | {
       kind: 'resize';
@@ -302,6 +304,13 @@ export function Canvas() {
     force((n) => n + 1);
   };
 
+  /** Drop one element from a tab's selection (a Shift-click on a selected element). */
+  const deselect = (tabId: string, id: string) =>
+    docApi(tabId).select({
+      entities: (tabState(tabId)?.selection.entities ?? []).filter((x) => x !== id),
+      connections: [],
+    });
+
   /** Commit a move, or with Alt a copy, as one undo step; the preview stays until this drop's render lands. */
   const drop = (g: MoveGesture, copy: boolean) => {
     const t = tabState(g.tabId);
@@ -354,6 +363,10 @@ export function Canvas() {
         if (!g.moved && Math.hypot(dx, dy) < 3 / z) return;
         if (!g.moved) setDragging(true);
         g.moved = true;
+        // Shift: move along the axis the pointer has travelled furthest (x locked → vertical move).
+        const lock = e.shiftKey ? (Math.abs(dx) >= Math.abs(dy) ? 'y' : 'x') : null;
+        if (lock === 'x') dx = 0;
+        if (lock === 'y') dy = 0;
         const boxes0 = g.render0.boxes;
         const mine = g.ids.map((id) => boxes0[id]).filter((b): b is Box => !!b);
         let guides: { x?: number; y?: number }[] = [];
@@ -372,9 +385,11 @@ export function Canvas() {
             .filter(([id]) => g.copy || !g.moving.has(id))
             .map(([, b]) => b);
           const s = snap(bounds, others, 6 / z);
-          dx += s.dx;
-          dy += s.dy;
-          guides = s.guides;
+          if (lock !== 'x') dx += s.dx;
+          if (lock !== 'y') dy += s.dy;
+          guides = s.guides.filter(
+            (gd) => (gd.x === undefined || lock !== 'x') && (gd.y === undefined || lock !== 'y'),
+          );
         }
         g.dx = Math.round(dx);
         g.dy = Math.round(dy);
@@ -438,6 +453,7 @@ export function Canvas() {
       const store = useDoc.getState();
       if (g.kind === 'move') {
         if (g.moved) drop(g, g.copy);
+        else if (g.toggle) deselect(g.tabId, g.toggle);
       } else if (g.kind === 'resize') {
         setSizing(null);
         const t = tabState(g.tabId);
@@ -502,22 +518,27 @@ export function Canvas() {
     e.stopPropagation();
     const store = useDoc.getState();
     let ids = store.selection.entities;
-    if (e.shiftKey) {
-      ids = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+    const tabId = useTabs.getState().activeId;
+    // Shift adds at once; Shift on a selected element removes it on release, unless the press becomes a drag.
+    const toggle = e.shiftKey && ids.includes(id) ? id : undefined;
+    if (e.shiftKey && !toggle) {
+      ids = [...ids, id];
       store.select({ entities: ids, connections: [] });
-      if (!ids.includes(id)) return;
-    } else if (!ids.includes(id)) {
+    } else if (!e.shiftKey && !ids.includes(id)) {
       ids = [id];
       store.select({ entities: ids, connections: [] });
     }
     const r = useUi.getState().render;
     // While a drop is still rendering, a press selects but does not start another move.
-    if (!r || settle.current) return;
+    if (!r || settle.current) {
+      if (toggle) deselect(tabId, toggle);
+      return;
+    }
     // Move only selection roots: a selected child of a selected group moves with the group.
     const roots = selectionRoots(store.doc, ids);
     gesture.current = {
       kind: 'move',
-      tabId: useTabs.getState().activeId,
+      tabId,
       sx: e.clientX,
       sy: e.clientY,
       ids: roots,
@@ -528,6 +549,7 @@ export function Canvas() {
       dy: 0,
       copy: false,
       moved: false,
+      toggle,
     };
   };
 

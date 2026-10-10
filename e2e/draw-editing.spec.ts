@@ -356,3 +356,39 @@ test('a reconnect that would duplicate a line, or a tab switch mid-drag, changes
   expect(first.connections).toEqual(doc.connections);
   expect(second).toEqual({ entities: [], connections: [] });
 });
+
+test('Shift-drag moves along one axis, also for an already selected element', async () => {
+  const page = await open();
+  const selected = () => page.evaluate(() => (window as any).__dg.doc.getState().selection.entities);
+  const drag = async (id: string, keys: string[], dx: number, dy: number) => {
+    const p = await center(page, id);
+    for (const k of keys) await page.keyboard.down(k);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await page.mouse.move(p.x + dx, p.y + dy, { steps: 8 });
+    await page.mouse.up();
+    for (const k of keys) await page.keyboard.up(k);
+    await settled(page);
+  };
+  await page.locator('.hit[data-id="a"]').click();
+  await drag('a', ['Shift'], 130, 25);
+  await expect.poll(async () => (await entity(page, 'a')).x).toBeGreaterThan(220);
+  expect((await entity(page, 'a')).y).toBe(100);
+  expect(await selected()).toEqual(['a']);
+  // A Shift-click without a drag still deselects.
+  await page.locator('.hit[data-id="a"]').click({ modifiers: ['Shift'] });
+  expect(await selected()).toEqual([]);
+  // With Alt, a vertical copy keeps the original's x.
+  const a = await entity(page, 'a');
+  await drag('a', ['Shift', 'Alt'], 15, 150);
+  await expect.poll(() => ids(page)).toEqual(['a', 'b', 'c', 'a-2']);
+  expect((await entity(page, 'a-2')).x).toBe(a.x);
+  expect(Math.abs((await entity(page, 'a-2')).y - 250)).toBeLessThanOrEqual(7);
+  expect(await entity(page, 'a')).toMatchObject({ x: a.x, y: 100 });
+  // With ⌘/Ctrl, the free axis does not snap: 3 px right of b's left edge stays there.
+  const copy = await entity(page, 'a-2');
+  await drag('a-2', ['Shift', mod], 403 - copy.x, 10);
+  await expect.poll(async () => (await entity(page, 'a-2')).x).toBe(403);
+  expect((await entity(page, 'a-2')).y).toBe(copy.y);
+  expect(await selected()).toEqual(['a-2']);
+});

@@ -11,6 +11,7 @@ const SHORTCUTS: [string, string][] = [
   ['Duplicate selection', `${mod}D`],
   ['Drop a copy while dragging', isMac ? '⌥-drag' : 'Alt-drag'],
   ['Drag without snapping', `${mod}-drag`],
+  ['Move along one axis', isMac ? '⇧-drag' : 'Shift-drag'],
   ['Reconnect a line', 'Drag its end handle'],
   ['Select all', `${mod}A`],
   ['Delete selection', '⌫'],
