@@ -225,6 +225,20 @@ export function connect(doc: Doc, from: string, to: string, ports?: { fromPort: 
   return out;
 }
 
+/** Set connection `index`'s label, or remove it for blank text; a stale label box goes too.
+ *  Returns `doc` itself when nothing changes. */
+export function setConnectionLabel(doc: Doc, index: number, text: string): Doc {
+  const c = doc.connections[index];
+  const label = text.trim();
+  if (!c || String(c.label ?? '') === label) return doc;
+  const out = clone(doc);
+  const next = out.connections[index]!;
+  if (label) next.label = label;
+  else delete next.label;
+  delete next.labelPlacement;
+  return out;
+}
+
 const center = (b: Box) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 const contains = (b: Box, p: { x: number; y: number }) =>
   p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;

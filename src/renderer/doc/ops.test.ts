@@ -15,6 +15,7 @@ import {
   pasteElements,
   reparent,
   selectionRoots,
+  setConnectionLabel,
   setPrimaryText,
   setProp,
   snap,
@@ -373,5 +374,17 @@ describe('copyElements / pasteElements', () => {
     expect(performance.now() - t0).toBeLessThan(500);
     expect(new Set(out.entities.map((e) => e.id)).size).toBe(out.entities.length);
     expect(out.connections.at(-1)).toEqual({ from: 'n0', to: 'n1' });
+  });
+});
+
+describe('setConnectionLabel', () => {
+  it('sets, trims and removes a label and its stale box, with no change for the same text', () => {
+    const d = doc();
+    const set = setConnectionLabel(d, 0, '  HTTP  ');
+    expect(set.connections[0]!.label).toBe('HTTP');
+    expect(set.connections[0]).not.toHaveProperty('labelPlacement');
+    expect(setConnectionLabel(set, 0, 'HTTP')).toBe(set);
+    expect(setConnectionLabel(set, 0, '   ').connections[0]).not.toHaveProperty('label');
+    expect(setConnectionLabel(d, 7, 'x')).toBe(d);
   });
 });

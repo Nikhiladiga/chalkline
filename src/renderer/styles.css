@@ -1092,6 +1092,11 @@ body {
   stroke: color-mix(in srgb, var(--line) 45%, transparent);
   stroke-width: 6px;
 }
+.conn-hit-label {
+  fill: transparent;
+  pointer-events: all;
+  cursor: pointer;
+}
 /* Drag preview: a straight stand-in for each connection with one moving end (dragPreview.ts). */
 .preview-line {
   stroke: var(--line);
@@ -1132,6 +1137,12 @@ body {
     sans-serif;
   resize: none;
   outline: none;
+}
+.label-edit {
+  min-width: 160px;
+  min-height: 0;
+  transform: translate(-50%, -50%);
+  text-align: center;
 }
 .empty {
   position: absolute;

@@ -10,6 +10,7 @@ import {
   reparent,
   resizeEntity,
   selectionRoots,
+  setConnectionLabel,
   setPrimaryText,
   snap,
   withDescendants,
@@ -24,7 +25,7 @@ import { clearPreview, showPreview } from './dragPreview';
 import { ICON_MIME } from './iconCatalog';
 import { IconMinus, IconPlus } from './icons';
 import { isMac } from './platform';
-import { easeView, type RenderInfo, requestFit, useUi } from './uiStore';
+import { easeView, type RenderInfo, requestFit, toast, useUi } from './uiStore';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -75,6 +76,8 @@ type Gesture =
     }
   | { kind: 'marquee'; x0: number; y0: number; x: number; y: number; base: string[] };
 type MoveGesture = Extract<Gesture, { kind: 'move' }>;
+/** The connection label editor: bound to its tab and to the connection's ends when it opened. */
+type LabelEdit = { tabId: string; index: number; from: string; to: string; value: string };
 
 /** Containment depth, for paint/hit order: containers under their members. */
 function depthOf(doc: Doc, id: string): number {
@@ -137,6 +140,10 @@ export function Canvas() {
   } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [sizing, setSizing] = useState<{ id: string; box: Box } | null>(null);
+  const [labelEdit, setLabelEdit] = useState<LabelEdit | null>(null);
+  // Commit reads the ref, so Escape (which clears it) can never be undone by the blur that follows.
+  const labelRef = useRef<LabelEdit | null>(null);
+  labelRef.current = labelEdit;
 
   // The engine mounts a fresh #eraser-scene per render; adopt it.
   useLayoutEffect(() => {
@@ -586,7 +593,38 @@ export function Canvas() {
       .map((x) => x.e);
   }, [doc]);
 
+  const openLabel = (index: number) => {
+    const c = useDoc.getState().doc.connections[index];
+    if (!c) return;
+    commitText();
+    const next = {
+      tabId: useTabs.getState().activeId,
+      index,
+      from: c.from,
+      to: c.to,
+      value: typeof c.label === 'string' ? c.label : '',
+    };
+    labelRef.current = next;
+    setLabelEdit(next);
+  };
+  const cancelLabel = () => {
+    labelRef.current = null;
+    setLabelEdit(null);
+  };
+  const commitLabel = () => {
+    const l = labelRef.current;
+    if (!l) return;
+    cancelLabel();
+    const t = tabState(l.tabId);
+    const c = t?.doc.connections[l.index];
+    if (!t || !c) return;
+    if (c.from !== l.from || c.to !== l.to) return toast('Label not saved: the connection changed.');
+    const next = setConnectionLabel(t.doc, l.index, l.value);
+    if (next !== t.doc) docApi(l.tabId).commit(next);
+  };
+
   const commitText = () => {
+    commitLabel();
     if (!editing) return;
     const store = useDoc.getState();
     const e = store.doc.entities.find((x) => x.id === editing.id);
@@ -601,6 +639,8 @@ export function Canvas() {
   const singleBox = single ? (sizing?.id === single ? sizing.box : render?.boxes[single]) : undefined;
   const singleIcon = doc.entities.find((e) => e.id === single)?.tag === 'Icon';
   const editBox = editing ? render?.boxes[editing.id] : undefined;
+  const labelAt =
+    labelEdit && render ? render.connections[render.connectionIds[labelEdit.index] ?? '']?.label : undefined;
 
   return (
     <div
@@ -678,21 +718,40 @@ export function Canvas() {
               {render.connectionIds.map((cid, i) => {
                 const geo = render.connections[cid];
                 if (!geo) return null;
+                const pick = (ev: React.PointerEvent) => {
+                  ev.stopPropagation();
+                  const sel = useDoc.getState().selection;
+                  useDoc.getState().select({
+                    entities: [],
+                    connections: ev.shiftKey ? [...new Set([...sel.connections, i])] : [i],
+                  });
+                };
+                const edit = (ev: React.MouseEvent) => {
+                  ev.stopPropagation();
+                  openLabel(i);
+                };
                 return (
-                  <path
-                    key={cid}
-                    data-conn={i}
-                    d={geo.d}
-                    className={`conn-hit${selection.connections.includes(i) ? ' sel' : ''}`}
-                    onPointerDown={(ev) => {
-                      ev.stopPropagation();
-                      const sel = useDoc.getState().selection;
-                      useDoc.getState().select({
-                        entities: [],
-                        connections: ev.shiftKey ? [...new Set([...sel.connections, i])] : [i],
-                      });
-                    }}
-                  />
+                  <g key={cid}>
+                    <path
+                      data-conn={i}
+                      d={geo.d}
+                      className={`conn-hit${selection.connections.includes(i) ? ' sel' : ''}`}
+                      onPointerDown={pick}
+                      onDoubleClick={edit}
+                    />
+                    {geo.labelBox && (
+                      <rect
+                        className="conn-hit-label"
+                        data-conn-label={i}
+                        x={geo.labelBox.x}
+                        y={geo.labelBox.y}
+                        width={geo.labelBox.width}
+                        height={geo.labelBox.height}
+                        onPointerDown={pick}
+                        onDoubleClick={edit}
+                      />
+                    )}
+                  </g>
                 );
               })}
             </svg>
@@ -825,6 +884,27 @@ export function Canvas() {
                   if (ev.key === 'Enter' && !ev.shiftKey) {
                     ev.preventDefault();
                     commitText();
+                  }
+                }}
+              />
+            )}
+            {labelEdit && labelAt && (
+              <input
+                className="text-edit label-edit"
+                aria-label="Connection label"
+                autoFocus
+                value={labelEdit.value}
+                style={{ left: labelAt.x, top: labelAt.y }}
+                onPointerDown={(ev) => ev.stopPropagation()}
+                onChange={(ev) => setLabelEdit({ ...labelEdit, value: ev.target.value })}
+                onBlur={commitLabel}
+                onKeyDown={(ev) => {
+                  // Keys stay in the field: ⌘Z, ⌘C, Delete and arrows never reach the canvas shortcuts.
+                  ev.stopPropagation();
+                  if (ev.key === 'Escape') cancelLabel();
+                  if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    commitLabel();
                   }
                 }}
               />

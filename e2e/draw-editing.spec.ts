@@ -158,3 +158,80 @@ test('Alt-drag drops a copy and leaves the original; Escape leaves no ghost', as
   await page.keyboard.press(`${mod}+z`);
   expect(await docOf(page)).toEqual(original);
 });
+
+/** Screen point of a document point. */
+const toScreen = (page: Page, x: number, y: number) =>
+  page.evaluate(
+    ([px, py]) => {
+      const ui = (window as any).__dg.ui.getState();
+      const r = document.querySelector('.canvas')!.getBoundingClientRect();
+      return { x: r.left + ui.pan.x + px! * ui.zoom, y: r.top + ui.pan.y + py! * ui.zoom };
+    },
+    [x, y],
+  );
+/** A screen point on connection i: the middle of its first segment. */
+const onLine = async (page: Page, i: number) => {
+  const [p, q] = await page.evaluate((n) => {
+    const r = (window as any).__dg.ui.getState().render;
+    return r.connections[r.connectionIds[n]].points.slice(0, 2);
+  }, i);
+  return toScreen(page, (p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+};
+test('double-click a line to label it; Enter commits, Escape cancels, blank removes, keys stay in the field', async () => {
+  const page = await open();
+  const label = page.getByRole('textbox', { name: 'Connection label' });
+  const p = await onLine(page, 0);
+  await page.mouse.dblclick(p.x, p.y);
+  await expect(label).toBeFocused();
+  await label.fill('calls');
+  await page.keyboard.press(`${mod}+z`); // native text undo in the field, not a diagram undo
+  expect(await past(page)).toBe(0);
+  await label.fill('calls');
+  await page.keyboard.press(`${mod}+a`);
+  await page.keyboard.press(`${mod}+c`);
+  await expect.poll(clipboardText).toBe('calls'); // the text, not diagram JSON
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await docOf(page)).connections[0].label).toBe('calls');
+  expect(await past(page)).toBe(1);
+  // Escape: no change, no history; the blur that follows must not commit either.
+  await page.mouse.dblclick(p.x, p.y);
+  await label.fill('nope');
+  await page.keyboard.press('Escape');
+  await expect(label).toHaveCount(0);
+  expect((await docOf(page)).connections[0].label).toBe('calls');
+  expect(await past(page)).toBe(1);
+  // Double-click the label box itself; a blank label removes the key.
+  const box = (await page.locator('.conn-hit-label').first().boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(label).toHaveValue('calls');
+  await label.fill('   ');
+  const canvas = (await page.locator('.canvas').boundingBox())!;
+  await page.mouse.click(canvas.x + 10, canvas.y + canvas.height - 60); // clicking away commits
+  await expect.poll(async () => (await docOf(page)).connections[0]).toEqual({ from: 'a', to: 'b' });
+  await page.keyboard.press(`${mod}+z`);
+  expect((await docOf(page)).connections[0].label).toBe('calls');
+});
+
+test('an open label edit keeps a change that lands meanwhile and commits to its own tab on a tab switch', async () => {
+  const page = await open();
+  const label = page.getByRole('textbox', { name: 'Connection label' });
+  const p = await onLine(page, 0);
+  await page.mouse.dblclick(p.x, p.y);
+  await label.fill('calls');
+  // An AI result (or any other commit) lands while the field is open: the field and its text stay.
+  await page.evaluate(() => {
+    const s = (window as any).__dg.doc.getState();
+    s.commit({ ...s.doc, entities: s.doc.entities.map((e: any) => (e.id === 'c' ? { ...e, x: 500 } : e)) });
+  });
+  await expect(label).toHaveValue('calls');
+  // Switching tabs (it blurs the field) commits the edit to the tab it was opened in; the new tab is untouched.
+  await page.evaluate(() => (window as any).__dg.actions.newTab());
+  await expect(label).toHaveCount(0);
+  const [first, second] = await page.evaluate(() =>
+    (window as any).__dg.tabs.getState().tabs.map((t: any) => t.doc),
+  );
+  expect(first.connections[0].label).toBe('calls');
+  expect(first.entities.find((e: any) => e.id === 'c').x).toBe(500);
+  expect(second).toEqual({ entities: [], connections: [] });
+  expect(await past(page)).toBe(0); // the active (new) tab has no history
+});
