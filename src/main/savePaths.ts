@@ -1,5 +1,27 @@
 import { realpath } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, posix, relative, sep, win32 } from 'node:path';
+
+/**
+ * Whether main may hand a renderer-supplied path to the filesystem at all. Checked before any realpath:
+ * merely resolving a UNC/device path on Windows opens an SMB connection (leaking NTLM hashes) or a device,
+ * and resolving `/net/<host>` on macOS makes autofs mount a remote host.
+ */
+export function isSafePath(path: string, platform: NodeJS.Platform = process.platform): boolean {
+  const p = platform === 'win32' ? win32 : posix;
+  if (!p.isAbsolute(path)) return false;
+  const norm = p.normalize(path);
+  if (platform === 'win32')
+    // `?` is never in a file name, only in `\\?\` and `\??\` NT prefixes; device names stay devices
+    // with an extension, trailing spaces or a colon (`NUL.json`, `CON :`).
+    return (
+      ![path, norm].some((x) => /^[\\/]{2}/.test(x) || x.includes('?')) &&
+      !norm
+        .split(/[\\/]/)
+        .some((seg) => /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$) *([.:].*)?$/i.test(seg))
+    );
+  // macOS paths are case-insensitive by default, so /NET is /net.
+  return platform !== 'darwin' || !/^\/(net|network)(\/|$)/i.test(norm);
+}
 
 // macOS and Windows filesystems ignore case by default, so `A.json` and `a.json` are one file.
 const fold = (p: string) =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, parseArgs, Settings } from './ipc';
+import { channels, DEFAULT_SETTINGS, parseArgs, Settings } from './ipc';
 
 describe('IPC payload validation', () => {
   it('loads legacy Detailed settings without a style field or losing other preferences', () => {
@@ -21,6 +21,44 @@ describe('IPC payload validation', () => {
     // `file:reopen` takes a path, but main reads it only when its key is a past dialog pick (files.test.ts).
     for (const channel of ['file:openPath', 'file:recent'])
       expect(() => parseArgs(channel as never, '/etc/passwd')).toThrow('unknown channel');
+  });
+
+  it('takes a free-form string only where reviewed, so a new path-reading channel fails here first', () => {
+    // A zod schema's type, seen through optional/nullable/default wrappers.
+    const kind = (schema: any): string =>
+      ['optional', 'nullable', 'default'].includes(schema.def.type)
+        ? kind(schema.def.innerType)
+        : schema.def.type;
+    const free = (schema: any) => ['string', 'unknown', 'any'].includes(kind(schema));
+    const found = Object.entries(channels).flatMap(([channel, schema]: [string, any]) =>
+      free(schema)
+        ? [channel]
+        : kind(schema) === 'object'
+          ? Object.entries(schema.def.shape)
+              .filter(([, field]) => free(field))
+              .map(([field]) => `${channel}.${field}`)
+          : [],
+    );
+    expect(found.sort()).toEqual(
+      [
+        'file:reopen', // a path: read only if a past dialog pick, after isSafePath (files.test.ts)
+        'file:save.path', // a path: written only if this session's dialog pick, after isSafePath
+        'file:save.content', // the diagram text written
+        'recovery:write', // recovery text, written to a fixed file in userData
+        'settings:set.baseUrl', // URL-validated; main fetches it as the API endpoint
+        'settings:set.model', // model name passed to the provider
+        'settings:set.cliPath', // a path: run only if it names the claude/codex binary (checkCliPath)
+        'settings:set.apiKey', // stored in main, never echoed back
+        'llm:chat.id', // request id echoed on llm:chunk
+        'llm:chat.projectId', // UUID-validated opaque handle from project:choose
+        'llm:cancel', // request id
+        'project:scan.projectId', // UUID-validated opaque handle
+        'project:scan.id', // request id
+        'export:png.doc', // a diagram rendered offscreen, never a path
+        'export:save.content', // export text written to the dialog's pick
+        'export:save.name', // only a dialog default; main keeps its basename
+      ].sort(),
+    );
   });
 
   it('rejects a non-string path', () => {

@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -103,20 +104,31 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     expect(await files.reopen(sent)).toBeNull();
   });
 
-  it('saves silently only to files picked or reopened this session, not every remembered one', async () => {
+  it('saves silently only to files picked this session; a reopened file asks with the Save dialog', async () => {
     const p = file('restored.json', '{"r":1}');
-    const other = file('remembered.json', '{"m":1}');
     await openViaDialog(p);
-    await openViaDialog(other);
-    await restart();
-    expect((await files.save(win, other, '{"x":1}'))?.path).toBe(join(dir, 'diagram.json'));
-    expect(readFileSync(other, 'utf8')).toBe('{"m":1}');
-    expect((await files.reopen(p))?.content).toBe('{"r":1}');
     expect((await files.save(win, p, '{"r":2}'))?.path).toBe(p);
+    await restart();
+    expect((await files.reopen(p))?.content).toBe('{"r":2}');
+    expect((await files.save(win, p, '{"r":3}'))?.path).toBe(join(dir, 'diagram.json'));
     expect(readFileSync(p, 'utf8')).toBe('{"r":2}');
+    // The dialog's answer is a pick like any other: saving there again is silent.
+    delete process.env.DG_SAVE_DIR;
+    pick(p);
+    expect((await files.save(win, p, '{"r":4}'))?.path).toBe(p);
+    expect((await files.save(win, p, '{"r":5}'))?.path).toBe(p);
+    expect(readFileSync(p, 'utf8')).toBe('{"r":5}');
   });
 
-  it('never reopens or saves into the app data folder, even a file picked there', async () => {
+  it('refuses relative and remote-mount paths before touching the filesystem', async () => {
+    const p = file('rel.json');
+    await openViaDialog(p);
+    expect(await files.reopen('rel.json')).toBeNull();
+    expect(await files.reopen('/net/evil-host/x.json')).toBeNull();
+    expect((await files.save(win, '/net/evil-host/x.json', '{}'))?.path).toBe(join(dir, 'diagram.json'));
+  });
+
+  it('never reopens, saves into or remembers the app data folder, even a file picked there', async () => {
     const settings = join(userData, 'settings.json');
     writeFileSync(settings, '{}');
     await openViaDialog(settings);
@@ -124,7 +136,11 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     expect((await files.save(win, join(userData, 'known-files.json'), '[]'))?.path).toBe(
       join(dir, 'diagram.json'),
     );
-    expect(JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'))).not.toEqual([]);
+    delete process.env.DG_SAVE_DIR;
+    pick(join(userData, 'recovery.json'));
+    await expect(files.save(win, null, '{}')).rejects.toThrow('app data folder');
+    const known = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
+    expect(known).toEqual([await chosenKey(join(dir, 'diagram.json'))]);
   });
 
   it('follows the file through a symlink until the link points elsewhere', async () => {
@@ -162,6 +178,25 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
       await chosenKey(p),
     ]);
   });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'retries an unreadable known-files list instead of replacing it with the next pick',
+    async () => {
+      const known = join(userData, 'known-files.json');
+      const p = file('kept.json', '{"k":1}');
+      await openViaDialog(p);
+      await restart();
+      chmodSync(known, 0);
+      try {
+        expect(await files.reopen(p)).toBeNull();
+        await openViaDialog(file('while-locked.json'));
+      } finally {
+        chmodSync(known, 0o600);
+      }
+      expect((await files.reopen(p))?.content).toBe('{"k":1}');
+      expect(JSON.parse(readFileSync(known, 'utf8'))).toContain(await chosenKey(p));
+    },
+  );
 
   it('keeps a pick made while a reopen is loading the list', async () => {
     writeFileSync(join(userData, 'known-files.json'), '[]');
