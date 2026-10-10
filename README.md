@@ -101,6 +101,15 @@ Use **Rescan** to refresh evidence or **Edit → Apply** to update the diagram a
 
 Large repositories use bounded excerpts, so scan coverage and model-authored source references should be reviewed. Oversized files and excluded paths are skipped, and the review step shows what was scanned.
 
+#### Deep scan
+
+With **Source → Code folder** and the Claude Code or Codex harness, you can turn on **Deep scan**. It is off by default, and the choice is remembered. Instead of sending bounded excerpts, the first generation call lets the CLI explore the chosen folder itself with read-only tools and asks for a detailed diagram: 25–60 elements grouped by service, connections labelled with protocol and operation, and a short source note. The stage line shows each file it reads. Repair rounds still run isolated.
+
+- **Claude Code:** `Read`, `Grep` and `Glob` only, confined to the folder (`--restricted`). No edits, shell, web, MCP, hooks or user settings. Common secret files and folders (`.env*`, keys, credentials, `.git`, cloud config, agent instruction files, `node_modules`) are denied, on a best-effort basis. Capped at 60 steps and 15 minutes.
+- **Codex:** read-only sandbox, no web search, user config and rules ignored. Its sandbox does **not** block secret files and may read outside the folder, so use it only on folders without secrets. Capped at 15 minutes.
+
+Deep scan uses your plan's quota and can take several minutes on large repositories. If Chalkline asks for a newer CLI, run `claude update` or `npm i -g @openai/codex@latest`.
+
 ### Draw and refine manually
 
 In **Icons**, search or filter the catalog and drag an icon onto the canvas. Drag between connection ports to link services. Use **Details** to edit captions and properties, or **Code** for direct JSON editing with `Ctrl+Space` completion. Invalid code drafts must be fixed or discarded before saving.
@@ -114,6 +123,8 @@ Save diagrams as editable JSON. PNG is available at 1×/2× with optional transp
 Diagram files and manual edits stay on your computer. Choosing or rescanning a folder does not call AI. **Generate** and **Apply** send prompts, diagram data and selected source excerpts to your configured provider.
 
 The scanner respects nested `.gitignore` rules and skips dependencies, build output, symlinks, binaries, oversized files, credential files and agent instructions. Common literal secrets are redacted, but detection is best effort. Review confidential code before sending it to a provider. Generated diagrams can contain project details derived from that evidence.
+
+**Deep scan** (opt-in) is the exception to excerpt-only sending. The CLI reads files in the chosen folder and sends what it reads to Anthropic or OpenAI **without redaction**, so secrets hard-coded in ordinary source or config files can reach the provider. Claude Code is blocked from common secret files; Codex is not, and it may read outside the folder.
 
 API keys are stored with Electron's `safeStorage` and are not exposed to the renderer. Saved diagrams do not embed keys, settings, source-folder access or the full scan context. Settings, recovery data and cached icons use the legacy `diagrammer` application-data directory.
 

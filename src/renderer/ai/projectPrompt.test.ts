@@ -81,3 +81,10 @@ it('deep prompt: inventory first, real turn budget, element definition and fewer
   expect(system).toContain(`stops after ${turns} turns`);
   expect(system).toContain('returns NO diagram');
 });
+
+it('deep prompt budget is provider-specific: Codex has no turn limit', () => {
+  const system = buildMessages('generate', 'x', empty, [], () => ({}), undefined, true, 'codex')[0]!.content;
+  expect(system).toContain('15 minutes');
+  expect(system).toContain('emit the JSON');
+  expect(system).not.toMatch(/turns?\b.*stops|stops after \d+ turns/);
+});

@@ -28,6 +28,8 @@ export interface AiRequest {
   sourceContext?: string;
   /** Deep scan: the CLI reads the folder itself; no excerpts are sent. */
   deep?: boolean;
+  /** Provider id; only used to word the deep-scan budget. */
+  provider?: string;
   /** Folder preview text used only to choose icon sets; never sent to the model. */
   iconHint?: string;
 }
@@ -81,6 +83,7 @@ export async function runAi(deps: AiDeps, req: AiRequest): Promise<AiResult> {
     deps.schemaOf,
     req.sourceContext,
     req.deep,
+    req.provider,
   );
   let best: { text: string; doc?: Doc; errors: Issue[] } | undefined;
   let good: { doc: Doc; fixes: string[]; warnings: Issue[] } | undefined;

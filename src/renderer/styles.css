@@ -1268,8 +1268,8 @@ body {
 }
 .switch-desc {
   margin: var(--sp-1) 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  line-height: 1.5;
+  font-size: var(--fs-md);
+  line-height: 1.45;
 }
 .ai-actions {
   display: flex;

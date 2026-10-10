@@ -181,6 +181,7 @@ export function AiPanel() {
           allowMove,
           sourceContext: snapshot?.context,
           deep,
+          provider: s.provider,
           iconHint: scan?.context,
         },
       );
