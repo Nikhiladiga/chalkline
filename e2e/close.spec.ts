@@ -8,6 +8,7 @@ test('a window with unsaved changes closes after choosing "Discard changes"', as
   const env = {
     ...process.env,
     DG_USER_DATA: userData,
+    DG_HIDE_WINDOW: process.env.DG_HIDE_WINDOW ?? '1',
   } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.DG_TEST; // real close guards, not test mode

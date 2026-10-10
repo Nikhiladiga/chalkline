@@ -34,6 +34,9 @@ function load(win: BrowserWindow, hash = ''): void {
 let main: BrowserWindow | null = null;
 let dirty = false;
 
+// E2E runs set DG_HIDE_WINDOW=1 so test windows never surface.
+const hidden = process.env.DG_HIDE_WINDOW === '1';
+
 function createWindow(): BrowserWindow {
   dirty = false;
   let discarding = false;
@@ -47,7 +50,8 @@ function createWindow(): BrowserWindow {
     // Packaged builds take the icon from the bundle; this covers `pnpm dev` on Windows/Linux.
     ...(app.isPackaged ? {} : { icon: join(app.getAppPath(), 'build/icon.png') }),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    webPreferences: prefs,
+    show: !hidden,
+    webPreferences: hidden ? { ...prefs, backgroundThrottling: false } : prefs,
   });
   win.on('close', (e) => {
     if (discarding) {
@@ -194,7 +198,8 @@ function menu(): void {
 }
 
 app.whenReady().then(() => {
-  if (!app.isPackaged) app.dock?.setIcon(join(app.getAppPath(), 'build/icon.png'));
+  if (hidden) app.dock?.hide();
+  else if (!app.isPackaged) app.dock?.setIcon(join(app.getAppPath(), 'build/icon.png'));
   handleIcons(() => getSettings().hostedIcons);
   menu();
   main = createWindow();

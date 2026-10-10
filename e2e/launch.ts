@@ -6,7 +6,10 @@ export async function launch(
   const base = { ...process.env } as Record<string, string>;
   // VS Code terminals export this; it turns Electron into plain Node.
   delete base.ELECTRON_RUN_AS_NODE;
-  const app = await electron.launch({ args: ['.'], env: { ...base, DG_TEST: '1', ...env } });
+  const app = await electron.launch({
+    args: ['.'],
+    env: { ...base, DG_TEST: '1', DG_HIDE_WINDOW: '1', ...env },
+  });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   return { app, page };
