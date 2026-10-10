@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RESPONSE_SCHEMA } from '../renderer/ai/prompt';
 import { DEFAULT_SETTINGS } from '../shared/ipc';
+import { deepLimits } from './claudeCli';
 import { chat } from './llm';
 
 const dirs: string[] = [];
@@ -35,6 +36,7 @@ process.stdin.on('end', () => {
   fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify({ args, stdin, cwd: process.cwd(), schema: args.includes('--output-schema') ? JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8')) : null }));
   if (${JSON.stringify(mode)} === 'hang') return setInterval(() => {}, 1000);
   if (${JSON.stringify(mode)} === 'error') { process.stderr.write('Please run codex login'); process.exit(1); }
+  if (${JSON.stringify(mode)} === 'old') { process.stderr.write("error: unexpected argument '-C' found"); process.exit(2); }
   const event = JSON.stringify({type: 'item.completed', item: {type: 'agent_message', text: '{"entities":[]}'}});
   process.stdout.write(event.slice(0, 20));
   setTimeout(() => process.stdout.write(event.slice(20) + '\\n' + JSON.stringify({type: 'turn.completed'})), 10);
@@ -146,4 +148,96 @@ it('reports login errors and supports cancellation, including before spawn', asy
   const p = chat(hanging.s, undefined, req, () => {}, running.signal);
   setTimeout(() => running.abort(), 100);
   await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+});
+
+const project = () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'dg-codex-project-')));
+  dirs.push(dir);
+  return dir;
+};
+const ask = (s: typeof DEFAULT_SETTINGS, cwd?: string) =>
+  chat(
+    s,
+    undefined,
+    { messages: [{ role: 'user', content: 'Map it' }] },
+    () => {},
+    new AbortController().signal,
+    { cwd },
+  );
+const FEATURES = ['plugins', 'apps', 'hooks', 'computer_use', 'browser_use', 'browser_use_external'];
+const MORE = ['multi_agent', 'goals', 'view_image', 'sleep_tool'];
+const disables = (list: string[]) => list.flatMap((f) => ['--disable', f]);
+
+it('keeps the non-deep Codex argv byte-for-byte unchanged', async () => {
+  const { s, log } = fake();
+  await ask(s);
+  const run = JSON.parse(readFileSync(log, 'utf8'));
+  expect(run.args).toEqual([
+    'exec',
+    '--ignore-user-config',
+    '--ignore-rules',
+    ...disables(['shell_tool', 'unified_exec', ...FEATURES, ...MORE]),
+    '-c',
+    'web_search="disabled"',
+    '-c',
+    'project_doc_max_bytes=0',
+    '--json',
+    '--ephemeral',
+    '--skip-git-repo-check',
+    '--sandbox',
+    'read-only',
+    '-',
+  ]);
+  expect(run.cwd).toMatch(/dg-codex-/);
+});
+
+it('deep scan runs Codex in the folder with its read-only shell and everything else still off', async () => {
+  const { s, log } = fake();
+  const root = project();
+  await ask({ ...s, deepScan: true }, root);
+  const run = JSON.parse(readFileSync(log, 'utf8'));
+  expect(run.cwd).toBe(root);
+  expect(run.args).toEqual([
+    'exec',
+    '--ignore-user-config',
+    '--ignore-rules',
+    ...disables([...FEATURES, ...MORE]),
+    '-c',
+    'web_search="disabled"',
+    '-c',
+    'project_doc_max_bytes=0',
+    '-c',
+    'shell_environment_policy.inherit="core"',
+    '--json',
+    '--ephemeral',
+    '--skip-git-repo-check',
+    '--sandbox',
+    'read-only',
+    '-C',
+    root,
+    '-',
+  ]);
+  expect(run.args).not.toContain('shell_tool');
+  expect(run.args).not.toContain('unified_exec');
+});
+
+// Review Focus 3: an older Codex without -C must say what to do.
+it('asks for a newer Codex when deep flags are rejected, and only in deep mode', async () => {
+  const { s } = fake('old');
+  await expect(ask({ ...s, deepScan: true }, project())).rejects.toThrow(
+    'Deep scan needs a newer Codex. Run "npm i -g @openai/codex@latest", or turn Deep scan off.',
+  );
+  await expect(ask(s)).rejects.toThrow(/Codex: error: unexpected argument/);
+});
+
+it('stops a deep Codex run at the wall clock', async () => {
+  const { s } = fake('hang');
+  deepLimits.wallMs = 300;
+  try {
+    await expect(ask({ ...s, deepScan: true }, project())).rejects.toThrow(
+      'Deep scan took longer than 15 minutes and was stopped.',
+    );
+  } finally {
+    deepLimits.wallMs = 15 * 60_000;
+  }
 });

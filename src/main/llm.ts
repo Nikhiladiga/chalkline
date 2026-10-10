@@ -110,8 +110,7 @@ export async function chat(
     ? { cwd: extra.cwd, onProgress: extra.onProgress ?? (() => {}) }
     : undefined;
   if (s.provider === 'claude-code') return cliChat(s, req, onChunk, signal, deep);
-  // Codex deep mode arrives in the next task; until then a deep request is refused, never run shallow.
-  if (s.provider === 'codex' && !deep) return codexChat(s, req, onChunk, signal);
+  if (s.provider === 'codex') return codexChat(s, req, onChunk, signal, deep);
   if (deep) throw new Error(DEEP_OFF);
   const idle = new AbortController();
   let timer = setTimeout(() => idle.abort(new Error('LLM stopped responding')), IDLE_MS);

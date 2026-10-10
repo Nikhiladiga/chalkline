@@ -4,10 +4,10 @@ import { delimiter, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
-import { findClaude, transcript } from './claudeCli';
+import { DEEP_WALL_ERROR, type Deep, deepLimits, findClaude, transcript } from './claudeCli';
 
 // Source text is evidence, never authorization to run tools or load the user's plugins/MCP/rules.
-const noTools = [
+const FEATURES = [
   'shell_tool',
   'unified_exec',
   'plugins',
@@ -20,7 +20,11 @@ const noTools = [
   'goals',
   'view_image',
   'sleep_tool',
-].flatMap((feature) => ['--disable', feature]);
+];
+// Deep scan: Codex reads files only through sandboxed commands, so its shell stays on.
+const SHELL = ['shell_tool', 'unified_exec'];
+const disabled = (deep: boolean) =>
+  FEATURES.filter((f) => !deep || !SHELL.includes(f)).flatMap((feature) => ['--disable', feature]);
 
 function codexEnv(bin: string): NodeJS.ProcessEnv {
   const paths = [dirname(bin), process.env.PATH];
@@ -117,6 +121,7 @@ export function codexChat(
   req: { messages: ChatMsg[]; schema?: object },
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  deep?: Deep,
 ): Promise<string> {
   signal.throwIfAborted();
   const bin = findClaude(s.cliPath, 'codex');
@@ -125,23 +130,27 @@ export function codexChat(
     'exec',
     '--ignore-user-config',
     '--ignore-rules',
-    ...noTools,
+    ...disabled(Boolean(deep)),
     '-c',
     'web_search="disabled"',
     '-c',
     'project_doc_max_bytes=0',
+    // Keep the app's env (tokens, AWS_*) away from `env`/`printenv`. Key unverified locally (spec §3).
+    ...(deep ? ['-c', 'shell_environment_policy.inherit="core"'] : []),
     '--json',
     '--ephemeral',
     '--skip-git-repo-check',
     '--sandbox',
     'read-only',
+    ...(deep ? ['-C', deep.cwd] : []),
     ...(s.model && s.model !== 'default' ? ['--model', s.model] : []),
     '-',
   ];
   const env = codexEnv(bin);
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(bin, args, { cwd: deep?.cwd ?? dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let timer: NodeJS.Timeout;
+    let wall: NodeJS.Timeout | undefined;
     let settled = false;
     let buf = '';
     let stderr = '';
@@ -151,6 +160,7 @@ export function codexChat(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(wall);
       signal.removeEventListener('abort', abort);
       if (child.exitCode === null) child.kill('SIGTERM');
       rmSync(dir, { recursive: true, force: true });
@@ -182,6 +192,7 @@ export function codexChat(
     signal.addEventListener('abort', abort);
     if (signal.aborted) return abort();
     bump();
+    if (deep) wall = setTimeout(() => finish(new Error(DEEP_WALL_ERROR)), deepLimits.wallMs);
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       bump();
@@ -200,10 +211,15 @@ export function codexChat(
     });
     child.on('close', (code) => {
       if (buf) event(buf);
+      const failed = code !== 0 || failure || !answer;
       finish(
-        code !== 0 || failure || !answer
-          ? new Error(`Codex: ${failure || stderr.trim() || `exited (${code}) without an answer`}`)
-          : undefined,
+        !failed
+          ? undefined
+          : new Error(
+              deep && /unexpected argument/.test(stderr)
+                ? 'Deep scan needs a newer Codex. Run "npm i -g @openai/codex@latest", or turn Deep scan off.'
+                : `Codex: ${failure || stderr.trim() || `exited (${code}) without an answer`}`,
+            ),
       );
     });
     const system = req.messages
