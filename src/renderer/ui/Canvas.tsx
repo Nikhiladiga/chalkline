@@ -152,7 +152,8 @@ export function Canvas() {
   const space = useRef(false);
   const [, force] = useState(0);
   const [guides, setGuides] = useState<{ x?: number; y?: number }[]>([]);
-  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  // tabId: the tab the editor opened on; the commit goes there, like the label editor's.
+  const [editing, setEditing] = useState<{ tabId: string; id: string; value: string } | null>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const lines = useRef<SVGSVGElement>(null);
   /** A committed drop whose render has not landed yet: its preview stays up until then. */
@@ -301,8 +302,10 @@ export function Canvas() {
       const one = sel.entities.length === 1 && !sel.connections.length;
       const entity = one ? d.entities.find((x) => x.id === sel.entities[0]) : undefined;
       if (entity) {
+        // No rendered box (its render is pending or failed): no editor could mount, so open none.
+        if (!ui.render?.boxes[entity.id]) return;
         e.preventDefault();
-        setEditing({ id: entity.id, value: getPrimaryText(entity) });
+        setEditing({ tabId: useTabs.getState().activeId, id: entity.id, value: getPrimaryText(entity) });
       } else if (sel.connections.length === 1 && !sel.entities.length) {
         e.preventDefault();
         openLabelRef.current(sel.connections[0]!);
@@ -770,11 +773,11 @@ export function Canvas() {
   const commitText = () => {
     commitLabel();
     if (!editing) return;
-    const store = useDoc.getState();
-    const e = store.doc.entities.find((x) => x.id === editing.id);
-    if (e && getPrimaryText(e) !== editing.value)
-      store.commit(setPrimaryText(store.doc, editing.id, editing.value));
     setEditing(null);
+    const t = tabState(editing.tabId);
+    const e = t?.doc.entities.find((x) => x.id === editing.id);
+    if (t && e && getPrimaryText(e) !== editing.value)
+      docApi(editing.tabId).commit(setPrimaryText(t.doc, editing.id, editing.value));
   };
 
   const g = gesture.current;
@@ -862,7 +865,7 @@ export function Canvas() {
                   onPointerLeave={() => setHovered((id) => (id === e.id ? null : id))}
                   onDoubleClick={(ev) => {
                     ev.stopPropagation();
-                    setEditing({ id: e.id, value: getPrimaryText(e) });
+                    setEditing({ tabId: useTabs.getState().activeId, id: e.id, value: getPrimaryText(e) });
                   }}
                 />
               );

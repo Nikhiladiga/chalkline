@@ -461,6 +461,18 @@ test('F2 and Enter edit the one selected element or line; not for several, mid-d
   await pressNothing('F2');
   await page.evaluate(() => (window as any).__dg.ui.getState().set({ settingsOpen: false }));
   await expect(page.getByRole('dialog')).toBeHidden();
+  // No rendered box yet (its render is pending or failed): nothing opens, not even once the box shows up.
+  await onlyB();
+  await page.evaluate(() => {
+    const ui = (window as any).__dg.ui;
+    (window as any).__r = ui.getState().render;
+    ui.getState().set({ render: { ...(window as any).__r, boxes: {} } });
+  });
+  await expect(page.locator('.hit[data-id="b"]')).toHaveCount(0);
+  await page.keyboard.press('F2');
+  await page.evaluate(() => (window as any).__dg.ui.getState().set({ render: (window as any).__r }));
+  await expect(page.locator('.hit[data-id="b"]')).toBeVisible();
+  await expect(page.locator('textarea.text-edit')).toHaveCount(0);
   // Typing in the code editor: F2 stays there.
   await page.locator('.hit[data-id="b"]').click();
   await page.getByRole('tab', { name: 'Code', exact: true }).click();
