@@ -401,7 +401,7 @@ export function Canvas() {
       if (!g) return;
       const store = useDoc.getState();
       if (g.kind === 'move') {
-        if (g.moved) drop(g, e.altKey);
+        if (g.moved) drop(g, g.copy);
       } else if (g.kind === 'resize') {
         setSizing(null);
         const t = tabState(g.tabId);
