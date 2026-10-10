@@ -120,6 +120,17 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     expect(readFileSync(p, 'utf8')).toBe('{"r":5}');
   });
 
+  it('touches a renderer path on disk only if its text matches a dialog pick', async () => {
+    const p = file('aliased.json', '{"a":1}');
+    await openViaDialog(p);
+    const alias = join(dir, 'alias-link');
+    rmSync(alias, { force: true });
+    symlinkSync(dir, alias);
+    expect(await files.reopen(join(alias, 'aliased.json'))).toBeNull();
+    expect((await files.save(win, join(alias, 'aliased.json'), '{}'))?.path).toBe(join(dir, 'diagram.json'));
+    expect((await files.reopen(p))?.content).toBe('{"a":1}');
+  });
+
   it('refuses relative and remote-mount paths before touching the filesystem', async () => {
     const p = file('rel.json');
     await openViaDialog(p);
@@ -140,15 +151,16 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     pick(join(userData, 'recovery.json'));
     await expect(files.save(win, null, '{}')).rejects.toThrow('app data folder');
     const known = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
-    expect(known).toEqual([await chosenKey(join(dir, 'diagram.json'))]);
+    expect(known).toHaveLength(2); // the pick's path text and its real key
+    expect(known).toContain(await chosenKey(join(dir, 'diagram.json')));
   });
 
-  it('follows the file through a symlink until the link points elsewhere', async () => {
+  it('follows a picked symlink until it points elsewhere', async () => {
     const target = file('target.json', '{"t":1}');
     const other = file('other.json');
     const link = join(dir, 'link.json');
     symlinkSync(target, link);
-    await openViaDialog(target);
+    await openViaDialog(link);
     expect((await files.reopen(link))?.content).toBe('{"t":1}');
     unlinkSync(link);
     symlinkSync(other, link);
@@ -174,9 +186,9 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     const p = file('after-corrupt.json');
     expect(await files.reopen(p)).toBeNull();
     await openViaDialog(p);
-    expect(JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'))).toEqual([
-      await chosenKey(p),
-    ]);
+    const known = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
+    expect(known).toHaveLength(2);
+    expect(known).toContain(await chosenKey(p));
   });
 
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
@@ -216,8 +228,8 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     for (const p of paths) await openViaDialog(p);
     await openViaDialog(paths[1]!); // re-picking moves it to the front
     const list = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
-    expect(list).toHaveLength(200);
-    expect(list[0]).toBe(await chosenKey(paths[1]!));
+    expect(list).toHaveLength(400); // path text + real key per pick
+    expect(list.slice(0, 2)).toContain(await chosenKey(paths[1]!));
     expect(await files.reopen(paths[0]!)).toBeNull();
     expect(await files.reopen(paths[2]!)).not.toBeNull();
   });

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, normalize } from 'node:path';
 import { app, type BrowserWindow, dialog } from 'electron';
 import type { OpenedFile, SavedFile } from '../shared/ipc';
 import { allowedSave, chosenKey, isSafePath, outsideAppData } from './savePaths';
@@ -28,11 +28,16 @@ async function atomicWrite(path: string, content: string | Uint8Array, mode = 0o
  */
 const chosen = new Set<string>();
 
+// A renderer path is only resolved on disk if its text matches a dialog pick, so it can never steer main's
+// realpath through a link to a network path. Case-folded where the filesystem ignores case.
+const text = (path: string) =>
+  process.platform === 'linux' ? normalize(path) : normalize(path).toLowerCase();
+
 /**
  * `known-files.json`: keys of files the user picked in a native Open or Save dialog, most recent first.
  * Only main writes it, from dialog picks, never with a path the renderer sent, so crash recovery may re-read these.
  */
-const KNOWN_MAX = 200;
+const KNOWN_MAX = 400; // two entries per pick: the path text and its real key
 let knownP: Promise<string[]> | undefined;
 let knownQueue: Promise<unknown> = Promise.resolve();
 
@@ -58,12 +63,13 @@ function loadKnown(): Promise<string[]> {
 /** Record a dialog-chosen path: allowed to save silently now, and to reopen after a crash. */
 async function choose(path: string): Promise<void> {
   const key = await chosenKey(path);
-  chosen.add(key);
+  const typed = text(path);
+  chosen.add(key).add(typed);
   // Never rejects: a bookkeeping failure must not fail an open or save.
   knownQueue = knownQueue
     .then(async () => {
       // ponytail: LRU cap; a stale key only re-allows reopening a file the user once chose in a dialog.
-      const list = [key, ...(await loadKnown()).filter((k) => k !== key)].slice(0, KNOWN_MAX);
+      const list = [...new Set([typed, key, ...(await loadKnown())])].slice(0, KNOWN_MAX);
       knownP = Promise.resolve(list);
       await atomicWrite(userFile('known-files.json'), JSON.stringify(list));
     })
@@ -78,6 +84,7 @@ async function choose(path: string): Promise<void> {
 export async function reopen(path: string): Promise<OpenedFile | null> {
   if (!isSafePath(path)) return null;
   await knownQueue;
+  if (!(await loadKnown().catch((): string[] => [])).includes(text(path))) return null;
   const real = await outsideAppData(path, app.getPath('userData'));
   const key = real && (await chosenKey(real).catch(() => null));
   if (!real || !key || !(await loadKnown().catch((): string[] => [])).includes(key)) return null;
@@ -117,7 +124,8 @@ export async function save(
   content: string,
 ): Promise<SavedFile | null> {
   const userData = app.getPath('userData');
-  let target = path && isSafePath(path) && (await allowedSave(path, chosen, userData));
+  let target =
+    path && isSafePath(path) && chosen.has(text(path)) && (await allowedSave(path, chosen, userData));
   if (!path || !target) {
     path = await askSavePath(win, 'diagram', 'json');
     if (!path) return null;

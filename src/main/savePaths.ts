@@ -1,3 +1,4 @@
+import { lstatSync, readlinkSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, posix, relative, sep, win32 } from 'node:path';
 
@@ -19,8 +20,37 @@ export function isSafePath(path: string, platform: NodeJS.Platform = process.pla
         .split(/[\\/]/)
         .some((seg) => /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$) *([.:].*)?$/i.test(seg))
     );
-  // macOS paths are case-insensitive by default, so /NET is /net.
-  return platform !== 'darwin' || !/^\/(net|network)(\/|$)/i.test(norm);
+  // macOS paths are case-insensitive by default, so /NET is /net. The Data volume is the same tree again.
+  return platform !== 'darwin' || !/^(\/system\/volumes\/data)?\/(net|network|home)(\/|$)/i.test(norm);
+}
+
+/**
+ * Like realpath, but every symlink target is checked with `isSafePath` before it is followed, so a local
+ * link (`/Volumes/Macintosh HD` → `/`) cannot lead into `/net`. Null when unsafe; a missing part ends the walk.
+ */
+export function safeRealpath(path: string, platform: NodeJS.Platform = process.platform): string | null {
+  const p = platform === 'win32' ? win32 : posix;
+  let todo = path;
+  for (let hops = 0; hops < 40; hops++) {
+    if (!isSafePath(todo, platform)) return null;
+    todo = p.normalize(todo);
+    const { root } = p.parse(todo);
+    const parts = todo.slice(root.length).split(/[\\/]/).filter(Boolean);
+    let cur = root;
+    let next: string | null = null;
+    for (const [i, part] of parts.entries()) {
+      cur = p.join(cur, part);
+      const st = lstatSync(cur, { throwIfNoEntry: false });
+      if (!st) return todo;
+      if (st.isSymbolicLink()) {
+        next = p.resolve(p.dirname(cur), readlinkSync(cur), ...parts.slice(i + 1));
+        break;
+      }
+    }
+    if (next === null) return todo;
+    todo = next;
+  }
+  return null;
 }
 
 // macOS and Windows filesystems ignore case by default, so `A.json` and `a.json` are one file.
