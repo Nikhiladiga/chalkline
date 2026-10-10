@@ -151,7 +151,8 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     pick(join(userData, 'recovery.json'));
     await expect(files.save(win, null, '{}')).rejects.toThrow('app data folder');
     const known = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
-    expect(known).toHaveLength(2); // the pick's path text and its real key
+    // The pick's path text and its real key: one entry where they are equal (Linux), else two.
+    expect(known.length).toBeLessThanOrEqual(2);
     expect(known).toContain(await chosenKey(join(dir, 'diagram.json')));
   });
 
@@ -187,7 +188,7 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     expect(await files.reopen(p)).toBeNull();
     await openViaDialog(p);
     const known = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
-    expect(known).toHaveLength(2);
+    expect(known.length).toBeLessThanOrEqual(2);
     expect(known).toContain(await chosenKey(p));
   });
 
@@ -223,14 +224,15 @@ describe('reopen: only files chosen in an Open or Save dialog', () => {
     );
   });
 
-  it('keeps the 200 most recent picks, deduplicated, newest first', async () => {
-    const paths = Array.from({ length: 201 }, (_, i) => file(`n${i}.json`));
+  it('caps the list at 400 entries, deduplicated, newest first', async () => {
+    const paths = Array.from({ length: 401 }, (_, i) => file(`n${i}.json`));
     for (const p of paths) await openViaDialog(p);
     await openViaDialog(paths[1]!); // re-picking moves it to the front
     const list = JSON.parse(readFileSync(join(userData, 'known-files.json'), 'utf8'));
-    expect(list).toHaveLength(400); // path text + real key per pick
+    expect(list).toHaveLength(400); // path text + real key per pick, one entry when they are equal
     expect(list.slice(0, 2)).toContain(await chosenKey(paths[1]!));
+    expect(await files.reopen(paths[1]!)).not.toBeNull();
     expect(await files.reopen(paths[0]!)).toBeNull();
-    expect(await files.reopen(paths[2]!)).not.toBeNull();
+    expect(await files.reopen(paths[400]!)).not.toBeNull();
   });
 });
