@@ -116,7 +116,7 @@ const handlers: { [C in Channel]: (arg: any, win: BrowserWindow, sender: Electro
         const cwd = a.projectId ? deepCwd(s, projectPath(a.projectId)) : undefined;
         return await chat(s, getKey(), a, (text) => sender.send('llm:chunk', { id: a.id, text }), ac.signal, {
           cwd,
-          onProgress: (text) => sender.send('llm:progress', { id: a.id, text }),
+          onProgress: (text) => !sender.isDestroyed() && sender.send('llm:progress', { id: a.id, text }),
         });
       } catch (e) {
         throw new Error(friendlyError(e, s));

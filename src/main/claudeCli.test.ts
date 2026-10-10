@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../shared/ipc';
@@ -163,4 +163,21 @@ it('turns a Codex command into a progress line', () => {
     }),
   ).toBe('Running rg -n route src');
   expect(codexProgress({ type: 'item.completed', item: { type: 'agent_message', text: '{}' } })).toBeNull();
+});
+
+it('never shows absolute paths or "undefined" in progress', () => {
+  const p = (ev: unknown) => cli.claudeProgress(ev, '/repo');
+  expect(p(use('Glob', { pattern: '/repo/src/**/*.ts' }))).toBe('Listing src/**/*.ts');
+  expect(p(use('Glob', { pattern: '/etc/*.conf' }))).toBe('Listing *.conf');
+  expect(p(use('Grep', { path: '/repo' }))).toBe('Searching the repo');
+  expect(cli.claudeProgress(result({ weird: 1 }), '/repo')).toBeNull();
+  expect(cli.claudeProgress(result(null), '/repo')).toBeNull();
+});
+
+it('redacts Codex command paths', () => {
+  const run = (command: string) =>
+    codexProgress({ type: 'item.started', item: { type: 'command_execution', command } }, '/Users/x/repo');
+  expect(run('cat /Users/x/repo/src/a.ts')).toBe('Running cat ./src/a.ts');
+  expect(run('cd /tmp && rg foo /etc')).toBe('Running cd tmp && rg foo etc');
+  expect(run(`ls ${homedir()}/.ssh`)).toBe('Running ls ~/.ssh');
 });

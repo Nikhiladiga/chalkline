@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { spawn } from 'cross-spawn';
@@ -116,11 +116,24 @@ export function codexModels(s: Settings): Promise<string[]> {
   });
 }
 
+const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const PREFIX_END = String.raw`(?=[/\s'"\`;|&()<>]|$)`;
+/** Show the repo as `.`, home as `~`, and any other absolute path as its basename. */
+export function redactPaths(command: string, cwd?: string): string {
+  let out = command;
+  if (cwd) out = out.replace(new RegExp(`${esc(cwd)}${PREFIX_END}`, 'g'), '.');
+  const home = homedir();
+  if (home.length > 1) out = out.replace(new RegExp(`${esc(home)}${PREFIX_END}`, 'g'), '~');
+  return out.replace(/(?<![\w.~])\/[^\s'"`;|&()<>]*/g, (p) => p.split('/').filter(Boolean).pop() ?? '/');
+}
+
 /** One progress line for a Codex JSONL event: the command it is about to run. */
-export function codexProgress(ev: any): string | null {
+export function codexProgress(ev: any, cwd?: string): string | null {
   const command = ev?.type === 'item.started' && ev.item?.type === 'command_execution' && ev.item.command;
   if (typeof command !== 'string') return null;
-  return clip(`Running ${command.replace(/^bash -lc /, '').replace(/^(['"])(.*)\1$/, '$2')}`);
+  return clip(
+    `Running ${redactPaths(command.replace(/^bash -lc /, '').replace(/^(['"])(.*)\1$/, '$2'), cwd)}`,
+  );
 }
 
 export function codexChat(
@@ -186,7 +199,7 @@ export function codexChat(
         return;
       }
       if (deep) {
-        const step = codexProgress(ev);
+        const step = codexProgress(ev, deep.cwd);
         if (step) deep.onProgress(step);
       }
       if (

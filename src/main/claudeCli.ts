@@ -1,7 +1,7 @@
 import { type ChildProcess, execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, join, relative, resolve, win32 } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, win32 } from 'node:path';
 import { spawn } from 'cross-spawn';
 import type { ChatMsg, Settings } from '../shared/ipc';
 
@@ -178,9 +178,14 @@ export function claudeProgress(ev: any, cwd: string): string | null {
       if (b.name === 'Read') return `Reading ${rel(String(input.file_path ?? ''))}`;
       if (b.name === 'Grep') {
         const where = input.path ? rel(String(input.path)) : '';
+        if (!input.pattern) return 'Searching the repo';
         return `Searching for "${input.pattern}"${where ? ` in ${where}` : ''}`;
       }
-      if (b.name === 'Glob') return `Listing ${input.pattern}`;
+      if (b.name === 'Glob') {
+        const pattern = String(input.pattern ?? '');
+        // Absolute patterns are shown repo-relative, or as a basename when outside the folder.
+        return `Listing ${isAbsolute(pattern) ? rel(pattern) : pattern}`.trimEnd();
+      }
       if (b.name === 'StructuredOutput') return 'Writing diagram';
       return null;
     })
