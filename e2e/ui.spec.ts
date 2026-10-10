@@ -89,7 +89,8 @@ test('Settings is a native modal: focus moves in, Escape closes it, focus return
   await button.click();
   const dialog = page.getByRole('dialog', { name: 'Settings' });
   await expect(dialog).toBeVisible();
-  await expect(page.getByLabel('AI provider')).toBeFocused();
+  // The checked provider kind takes focus (API here: DG_LLM_BASE_URL means an OpenAI-compatible server).
+  await expect(page.getByRole('radio', { name: 'API', exact: true })).toBeFocused();
   expect(await dialog.evaluate((d) => d.matches('dialog:modal'))).toBe(true);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);

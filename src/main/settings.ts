@@ -14,18 +14,26 @@ function readJson(name: string): any {
   }
 }
 
-export function getSettings(): Settings {
-  const merged = { ...DEFAULT_SETTINGS, ...readJson('settings.json') };
+/** Stored settings plus env overrides, migrated to the current provider set. Pure, for tests. */
+export function normalizeSettings(
+  stored: Record<string, unknown>,
+  env: Record<string, string | undefined>,
+): Settings {
+  const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS, ...stored };
   // The Anthropic API provider was replaced by the Claude Code CLI.
   if (merged.provider === 'anthropic') Object.assign(merged, { provider: 'claude-code', model: 'default' });
-  // Test/automation overrides.
-  // A base URL override means an OpenAI-compatible server (mock or LM Studio) unless told otherwise.
-  if (process.env.DG_LLM_BASE_URL)
-    Object.assign(merged, { provider: 'lmstudio', baseUrl: process.env.DG_LLM_BASE_URL });
-  if (process.env.DG_LLM_PROVIDER) merged.provider = process.env.DG_LLM_PROVIDER;
-  if (process.env.DG_LLM_MODEL) merged.model = process.env.DG_LLM_MODEL;
+  // Test/automation overrides. A base URL override means an OpenAI-compatible server unless told otherwise.
+  if (env.DG_LLM_BASE_URL) Object.assign(merged, { provider: 'openai', baseUrl: env.DG_LLM_BASE_URL });
+  if (env.DG_LLM_PROVIDER) merged.provider = env.DG_LLM_PROVIDER;
+  if (env.DG_LLM_MODEL) merged.model = env.DG_LLM_MODEL;
+  // LM Studio is now an API preset: same URL and model, OpenAI-compatible provider.
+  if (merged.provider === 'lmstudio') merged.provider = 'openai';
   const parsed = Settings.safeParse(merged);
   return parsed.success ? parsed.data : DEFAULT_SETTINGS;
+}
+
+export function getSettings(): Settings {
+  return normalizeSettings(readJson('settings.json'), process.env);
 }
 
 /** API keys per provider, encrypted with the OS keychain via safeStorage. Never sent to the renderer. */

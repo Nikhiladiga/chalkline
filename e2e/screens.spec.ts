@@ -102,8 +102,11 @@ test('capture redesign screenshots', async () => {
     await shot('07-export-menu');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByLabel('AI provider')).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'Server preset' })).toBeVisible();
     await shot('08-settings');
+    await page.getByRole('radio', { name: 'Installed CLI', exact: true }).click();
+    await expect(page.locator('.harness-status .badge').first()).not.toHaveText('Checking…');
+    await shot('15-settings-cli');
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByLabel('Diagram source').selectOption('folder');
     await shot('09-ai-code-folder');
@@ -122,7 +125,11 @@ test('capture redesign screenshots', async () => {
     await page.locator('.hit[data-id="lambda"]').click();
     await shot('12-light-selection');
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.getByRole('radiogroup', { name: 'Server preset' })).toBeVisible();
     await shot('13-light-settings');
+    await page.getByRole('radio', { name: 'Installed CLI', exact: true }).click();
+    await expect(page.locator('.harness-status .badge').first()).not.toHaveText('Checking…');
+    await shot('16-light-settings-cli');
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });

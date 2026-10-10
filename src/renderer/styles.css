@@ -95,6 +95,11 @@ body {
   --accent-soft: color-mix(in srgb, #7581ee 16%, transparent);
   --line: #7581ee;
   --guide: #f43f5e;
+  /* Harness monogram tiles (Settings): two hues off the chalk line, never vendor colours. */
+  --mono-cc: #aab2fa;
+  --mono-cc-bg: rgb(117 129 238 / 0.16);
+  --mono-cx: #5fd3bf;
+  --mono-cx-bg: rgb(56 189 168 / 0.14);
   --success: #3fb950;
   --danger: #e5484d;
   --warn: #d4a72c;
@@ -135,6 +140,10 @@ body {
   --accent-soft: color-mix(in srgb, #5e6ad2 12%, transparent);
   --line: #5e6ad2;
   --guide: #e11d48;
+  --mono-cc: #4a54b8;
+  --mono-cc-bg: rgb(94 106 210 / 0.12);
+  --mono-cx: #0b6b60;
+  --mono-cx-bg: rgb(13 148 136 / 0.12);
   --success: #1f883d;
   --danger: #ce2c31;
   --warn: #9a6700;
@@ -1119,7 +1128,8 @@ body {
   cursor: pointer;
   transition: color var(--dur-instant) linear;
 }
-.seg button[aria-selected="true"] {
+.seg button[aria-selected="true"],
+.seg button[aria-checked="true"] {
   color: var(--ink);
 }
 .seg button:disabled {
@@ -1472,6 +1482,184 @@ body {
   margin: 0 0 var(--sp-3);
   color: var(--ink);
   font: var(--fw-semibold) var(--fs-sm) / var(--lh-sm) var(--ui);
+}
+/* Settings: fixed outer size whatever the provider; header and footer stay, the body scrolls. */
+.modal.settings {
+  height: min(640px, calc(100vh - 96px));
+}
+.modal.settings .modal-body {
+  flex: 1;
+  min-height: 0;
+}
+.seg.kind {
+  display: grid;
+  width: 100%;
+  margin-bottom: var(--sp-4);
+}
+.seg.kind button {
+  height: var(--control-h-sm);
+  font-size: var(--fs-md);
+}
+.provider-pane {
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+@starting-style {
+  .provider-pane {
+    opacity: 0;
+  }
+}
+.field > .field-note {
+  color: var(--ink-tertiary);
+  font: var(--fw-regular) var(--fs-xs) / var(--lh-xs) var(--ui);
+}
+.field-hint {
+  margin-left: var(--sp-1);
+  color: var(--ink-tertiary);
+  font-weight: var(--fw-regular);
+}
+/* Radio cards: harnesses and server presets. The checked card carries the chalk line. */
+.choice-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+}
+.choice-cards.presets {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.choice-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  min-width: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--s2);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) linear,
+    border-color var(--dur-instant) linear,
+    box-shadow var(--dur-instant) linear,
+    transform var(--dur-instant) linear;
+}
+.choice-card:hover {
+  border-color: var(--hairline-3);
+  background: var(--s3);
+}
+.choice-card:active {
+  transform: scale(0.99);
+}
+.choice-card[aria-checked="true"] {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--line) 8%, var(--s2));
+  box-shadow: inset 0 -2px 0 var(--line);
+}
+/* Radio dot, top right. */
+.choice-card.harness::after {
+  content: "";
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--ink-tertiary);
+  border-radius: 50%;
+  transition:
+    border-color var(--dur-instant) linear,
+    background-color var(--dur-instant) linear;
+}
+.choice-card.harness[aria-checked="true"]::after {
+  border-color: var(--line);
+  background: radial-gradient(circle, var(--line) 0 3px, transparent 3.5px);
+}
+.monogram {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background: var(--mono-cc-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mono-cc) 24%, transparent);
+  color: var(--mono-cc);
+  font: var(--fw-semibold) var(--fs-md) / 1 var(--ui);
+  letter-spacing: 0.04em;
+}
+.choice-card[data-harness="codex"] .monogram {
+  background: var(--mono-cx-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mono-cx) 24%, transparent);
+  color: var(--mono-cx);
+}
+.monogram-term {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  background: var(--s4);
+  box-shadow: 0 0 0 1px var(--hairline-strong);
+  color: var(--ink-muted);
+}
+.monogram-term svg {
+  width: 12px;
+  height: 12px;
+}
+.choice-text {
+  display: grid;
+  gap: var(--sp-1);
+  min-width: 0;
+  padding-right: var(--sp-5);
+}
+.choice-name {
+  font: var(--fw-medium) var(--fs-md) / var(--lh-md) var(--ui);
+}
+.harness-status {
+  display: grid;
+  justify-items: start;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.choice-hint {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ink-subtle);
+  font: var(--fw-regular) var(--fs-xs) / var(--lh-xs) var(--ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: var(--s3);
+  color: var(--ink-subtle);
+  font: var(--fw-medium) var(--fs-xs) / 1 var(--ui);
+}
+.badge.ok {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  /* Pulled toward ink so the label clears 4.5:1 in both themes. */
+  color: color-mix(in srgb, var(--success) 75%, var(--ink));
+}
+.badge svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.2;
+}
+.choice-card.preset {
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3) 10px;
 }
 .modal.icons {
   height: min(640px, calc(100vh - 96px));
