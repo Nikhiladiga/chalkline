@@ -192,10 +192,8 @@ test('a drop past the origin keeps a scroll and zoom made while its render is in
       dg.ui.getState().set({ zoom: 1, pan: { x: 260, y: 120 } });
     }, doc);
     const shape = page.locator('.hit[data-id="api"]');
-    const group = page.locator('.hit[data-id="vpc"]');
     await expect(shape).toBeVisible();
     const before = (await shape.boundingBox())!;
-    const groupBefore = (await group.boundingBox())!;
     // Hold every engine render until released, like a slow render of a big diagram.
     await page.evaluate(() => {
       const w = window as any;

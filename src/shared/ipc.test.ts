@@ -57,6 +57,7 @@ describe('IPC payload validation', () => {
         'export:png.doc', // a diagram rendered offscreen, never a path
         'export:save.content', // export text written to the dialog's pick
         'export:save.name', // only a dialog default; main keeps its basename
+        'clipboard:write', // diagram JSON put on the system clipboard; never a path
       ].sort(),
     );
   });
