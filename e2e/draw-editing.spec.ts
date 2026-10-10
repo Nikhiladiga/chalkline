@@ -469,6 +469,33 @@ test('F2 and Enter edit the one selected element or line; not for several, mid-d
   expect(await past(page)).toBe(2);
 });
 
+test('a drop whose render throws still settles: the error shows and the next drag works', async () => {
+  const page = await open();
+  await page.evaluate(() => {
+    const eraser = (window as any).__eraser;
+    const run = eraser.run;
+    eraser.run = async () => {
+      eraser.run = run;
+      throw new Error('render exploded');
+    };
+  });
+  const drag = async () => {
+    const c = await center(page, 'c');
+    await page.mouse.move(c.x, c.y);
+    await page.mouse.down();
+    await page.mouse.move(c.x + 100, c.y, { steps: 8 });
+    await page.mouse.up();
+  };
+  await drag();
+  await expect.poll(async () => (await entity(page, 'c')).x).toBeGreaterThan(450);
+  await expect(page.locator('.error-pill')).toContainText('render exploded');
+  await expect(page.locator('[data-preview]')).toHaveCount(0);
+  const x = (await entity(page, 'c')).x;
+  await drag();
+  await expect.poll(async () => (await entity(page, 'c')).x).toBeGreaterThan(x + 50);
+  await expect(page.locator('.error-pill')).toHaveCount(0);
+});
+
 test('label field: Enter while composing does not commit; an untouched open and blur adds no undo step', async () => {
   const page = await open({
     ...DOC,

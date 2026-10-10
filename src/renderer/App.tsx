@@ -44,12 +44,20 @@ function useRenderLoop(): void {
   const theme = useUi((s) => s.theme);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick forces a re-render of the same doc.
   useEffect(() => {
-    void render(applyTheme(doc, theme)).then((r) => {
-      if ((!r.ok && r.stale) || useDoc.getState().doc !== doc) return; // switched tabs mid-render
-      const ui = useUi.getState();
-      if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
-      else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });
-    });
+    render(applyTheme(doc, theme)).then(
+      (r) => {
+        if ((!r.ok && r.stale) || useDoc.getState().doc !== doc) return; // switched tabs mid-render
+        const ui = useUi.getState();
+        if (r.ok) ui.set({ render: { ...r }, errors: [], warnings: r.warnings });
+        else ui.set({ errors: r.errors, warnings: r.warnings, fitPending: false });
+      },
+      // A throwing engine shows as an error, so a drop waiting on this render still settles.
+      (e: unknown) => {
+        if (useDoc.getState().doc !== doc) return;
+        const message = `Render failed: ${e instanceof Error ? e.message : String(e)}`;
+        useUi.getState().set({ errors: [{ code: 'E_RENDER', path: '', message }], fitPending: false });
+      },
+    );
   }, [doc, tick, theme]);
 }
 
