@@ -34,7 +34,7 @@ See "Repository layout" in [AGENTS.md](AGENTS.md).
 
 ## Releases
 
-Every push to `main` that changes app files (not only `site/`, Markdown or LICENSE) builds and publishes a GitHub Release with the next patch tag (`vX.Y.Z`): macOS DMGs (arm64 and x64), a Windows EXE, and notes generated from merged PRs. To bump the minor or major version, set `version` in `package.json` in your PR. Do not create tags by hand. Builds are unsigned.
+Releases are manual. Go to Actions → Release → Run workflow on `main`, pick the bump (patch, minor or major) and optionally draft. The workflow builds macOS DMGs (arm64 and x64) and a Windows EXE; only if every build succeeds it commits the new `version` to `package.json` on `main` (`chore:release vX.Y.Z`), tags `vX.Y.Z` and publishes a GitHub Release with notes generated from merged PRs. A failed build leaves no commit, tag or release; if `main` moves during the build the run fails and must be repeated. Do not create tags by hand. Builds are unsigned.
 
 ## Signed macOS release
 
