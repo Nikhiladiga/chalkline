@@ -47,7 +47,18 @@ type Gesture =
       dy: number;
       moved: boolean;
     }
-  | { kind: 'resize'; sx: number; sy: number; id: string; doc0: Doc; box0: Box }
+  | {
+      kind: 'resize';
+      tabId: string;
+      sx: number;
+      sy: number;
+      id: string;
+      doc0: Doc;
+      box0: Box;
+      /** The outline's size; the document changes only on release. */
+      width: number;
+      height: number;
+    }
   | {
       kind: 'link';
       from: string;
@@ -120,6 +131,7 @@ export function Canvas() {
     shift: { x: number; y: number } | null;
   } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [sizing, setSizing] = useState<{ id: string; box: Box } | null>(null);
 
   // The engine mounts a fresh #eraser-scene per render; adopt it.
   useLayoutEffect(() => {
@@ -325,9 +337,10 @@ export function Canvas() {
         // No document change and no engine render per move: only the preview moves (dragPreview.ts).
         showPreview(previewTarget(g), { moving: g.moving, dx: g.dx, dy: g.dy, copy: false });
       } else if (g.kind === 'resize') {
-        const dx = (e.clientX - g.sx) / z;
-        const dy = (e.clientY - g.sy) / z;
-        useDoc.getState().replace(resizeEntity(g.doc0, g.id, g.box0.width + dx, g.box0.height + dy));
+        // An outline follows the handle; the engine renders once, on release (as in draw.io).
+        g.width = Math.max(8, Math.round(g.box0.width + (e.clientX - g.sx) / z));
+        g.height = Math.max(8, Math.round(g.box0.height + (e.clientY - g.sy) / z));
+        setSizing({ id: g.id, box: { ...g.box0, width: g.width, height: g.height } });
       } else if (g.kind === 'link' || g.kind === 'marquee') {
         const p = toDoc(e.clientX, e.clientY);
         g.x = p.x;
@@ -371,7 +384,10 @@ export function Canvas() {
       if (g.kind === 'move') {
         if (g.moved) drop(g);
       } else if (g.kind === 'resize') {
-        store.endGesture();
+        setSizing(null);
+        const t = tabState(g.tabId);
+        if (t && t.doc === g.doc0 && (g.width !== g.box0.width || g.height !== g.box0.height))
+          docApi(g.tabId).commit(resizeEntity(g.doc0, g.id, g.width, g.height));
       } else if (g.kind === 'link') {
         const p = toDoc(e.clientX, e.clientY);
         const target = connectionTarget(p, g.from);
@@ -391,10 +407,7 @@ export function Canvas() {
       setGuides([]);
       setDropActive(false);
       if (g?.kind === 'move') endPreview();
-      if (g?.kind === 'resize') {
-        useDoc.getState().replace(g.doc0);
-        useDoc.setState({ gestureStart: null });
-      }
+      if (g?.kind === 'resize') setSizing(null);
       if (g) force((n) => n + 1);
     };
     // Leaving the window or the tab also ends a drop's wait: apply its pan now, so the tab's saved view is right.
@@ -475,9 +488,17 @@ export function Canvas() {
     const r = useUi.getState().render;
     const box0 = r?.boxes[id];
     if (!box0) return;
-    const store = useDoc.getState();
-    store.beginGesture();
-    gesture.current = { kind: 'resize', sx: e.clientX, sy: e.clientY, id, doc0: store.doc, box0 };
+    gesture.current = {
+      kind: 'resize',
+      tabId: useTabs.getState().activeId,
+      sx: e.clientX,
+      sy: e.clientY,
+      id,
+      doc0: useDoc.getState().doc,
+      box0,
+      width: box0.width,
+      height: box0.height,
+    };
   };
 
   const onLinkDown = (e: React.PointerEvent, id: string, port: Port = 'right') => {
@@ -556,7 +577,8 @@ export function Canvas() {
 
   const g = gesture.current;
   const single = selection.entities.length === 1 ? selection.entities[0]! : null;
-  const singleBox = single ? render?.boxes[single] : undefined;
+  // While resizing, the handles follow the outline.
+  const singleBox = single ? (sizing?.id === single ? sizing.box : render?.boxes[single]) : undefined;
   const singleIcon = doc.entities.find((e) => e.id === single)?.tag === 'Icon';
   const editBox = editing ? render?.boxes[editing.id] : undefined;
 
@@ -719,6 +741,18 @@ export function Canvas() {
                   strokeDasharray={g.target ? undefined : `${6 / zoom} ${4 / zoom}`}
                 />
               </svg>
+            )}
+            {sizing && (
+              <div
+                className="resize-preview"
+                data-testid="resize-preview"
+                style={{
+                  left: sizing.box.x,
+                  top: sizing.box.y,
+                  width: sizing.box.width,
+                  height: sizing.box.height,
+                }}
+              />
             )}
             {g?.kind === 'marquee' && (
               <div

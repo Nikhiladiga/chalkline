@@ -1097,6 +1097,13 @@ body {
   stroke: var(--line);
   stroke-linecap: round;
 }
+.resize-preview {
+  position: absolute;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  pointer-events: none;
+  z-index: 5;
+}
 .guide {
   position: absolute;
   background: var(--guide);
