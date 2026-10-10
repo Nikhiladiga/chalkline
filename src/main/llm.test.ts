@@ -678,4 +678,16 @@ describe('deepCwd gate', () => {
     rmSync(real, { recursive: true, force: true });
     expect(() => deepCwd(on, link)).toThrow('Choose the code folder again before scanning.');
   });
+
+  // Acceptance finding: a folder picked with other letter case must resolve to the on-disk case.
+  it('returns the on-disk letter case for a miscased folder', (ctx) => {
+    const dir = realpathSync.native(project());
+    const upper = dir.toUpperCase();
+    let caseInsensitive = false;
+    try {
+      caseInsensitive = realpathSync.native(upper) === dir;
+    } catch {}
+    if (!caseInsensitive) ctx.skip(); // case-sensitive filesystem: nothing to resolve
+    expect(deepCwd(on, upper)).toBe(dir);
+  });
 });

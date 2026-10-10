@@ -102,7 +102,7 @@ export function tooBroad(dir: string, home: string, p: typeof nodePath = nodePat
 
 const real = (path: string) => {
   try {
-    return realpathSync(path);
+    return realpathSync.native(path);
   } catch {
     return path;
   }
@@ -115,7 +115,8 @@ export function deepCwd(s: Settings, path: string): string {
   if (!s.deepScan || !canDeepScan(s.provider)) throw new Error(DEEP_OFF);
   let dir: string;
   try {
-    dir = realpathSync(path);
+    // .native also takes the on-disk letter case, which Claude's init reports as its cwd.
+    dir = realpathSync.native(path);
     if (!statSync(dir).isDirectory()) throw new Error();
   } catch {
     throw new Error('Choose the code folder again before scanning.');
